@@ -141,7 +141,7 @@ if "%errorlevel%"=="0" (
     echo 如果本机 conda 插件有告警，脚本会隐藏这些告警输出。
     set /p cchoice=是否继续清理 conda 缓存？^(Y/N^): 
     if /i "!cchoice!"=="Y" (
-        conda clean --all -y 2>nul
+        call conda clean --all -y 2>nul
         if errorlevel 1 (
             echo conda 清理失败，请手动检查 conda 环境。
         ) else (
