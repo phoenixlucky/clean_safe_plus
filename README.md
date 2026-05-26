@@ -35,20 +35,30 @@ Windows C 盘安全清理工具，提供两种使用方式：
 │  C:  总容量 237.5 GB | 已用 195.2 GB | 剩余 42.3 GB │
 │  ████████████████████████████████░░░░░  (进度条)     │
 ├──────────────────────────────────────────────────────┤
-│  ☐ 分析 C:\ 大目录                                   │
-│  ☑ 安全清理 — 临时文件 + 更新缓存 + 回收站           │
-│  ☐ 关闭休眠 (删除 hiberfil.sys)                      │
-│  ☐ 清理 pip 缓存                                     │
-│  ☐ 清理 conda 缓存                                   │
-│  ☐ 清理 Docker                                       │
+│  ▸ 系统清理（安全）                                  │
+│  ☑ 临时文件         ☑ Prefetch                       │
+│  ☑ 更新缓存         ☑ 日志文件                       │
+│  ☑ 缩略图缓存       ☑ 回收站                         │
+│  ▸ 浏览器缓存                                        │
+│  ☐ Chrome            ☐ Edge                          │
+│  ☐ Firefox                                           │
+│  ▸ 应用缓存                                          │
+│  ☐ 微信              ☐ VSCode                        │
+│  ☐ NVIDIA                                            │
+│  ▸ 开发缓存                                          │
+│  ☐ pip               ☐ npm                           │
+│  ☐ conda             ☐ __pycache__                    │
+│  ☐ Docker                                            │
+│  ▸ 其他                                              │
+│  ☐ 关闭休眠          ☐ 分析 C 盘大目录               │
 ├──────────────────────────────────────────────────────┤
 │  [▶ 开始清理] [⏹ 取消] [☑ 全选] [☐ 取消全选]       │
-│  ████████████████████░░░░░░  60%  conda 缓存 ✓       │
+│  ████████████████████░░░░░░  60%  Docker OK           │
 ├──────────────────────────────────────────────────────┤
 │  [14:32:05] ▶ 开始清理临时文件...                    │
 │  [14:32:06] ✓ 用户 Temp 清理完成                     │
 │  [14:32:10] ✅ 清理完成！释放 24.25 GB               │
-│  ━━━━ 清理前后对比 ━━━━                              │
+│  ━━━━━ 清理前后对比 ━━━━━                            │
 │  清理前剩余: 20.87 GB                                │
 │  清理后剩余: 45.12 GB                                │
 │  释放空间:   24.25 GB                                │
@@ -59,12 +69,30 @@ Windows C 盘安全清理工具，提供两种使用方式：
 
 | 项目 | 默认 | 说明 |
 |---|---|---|
+| **▸ 系统清理（安全）** | | |
+| 临时文件 | ✅ 开启 | Temp / AppData Temp / Windows Temp，安全可删 |
+| Prefetch | ✅ 开启 | 清理后自动重建，安全 |
+| Windows 更新缓存 | ✅ 开启 | 需重启 Windows Update 服务 |
+| 日志文件 | ✅ 开启 | Windows Logs + WER 错误报告 |
+| 缩略图缓存 | ✅ 开启 | `thumbcache_*.db` 安全可删 |
+| 回收站 | ✅ 开启 | `C:\$Recycle.Bin` |
+| **▸ 浏览器缓存** | | |
+| Chrome | ❌ 关闭 | `Chrome\User Data\Default\Cache` |
+| Edge | ❌ 关闭 | `Edge\User Data\Default\Cache` |
+| Firefox | ❌ 关闭 | `Mozilla\Firefox\Profiles\*\cache2` |
+| **▸ 应用缓存** | | |
+| 微信缓存 | ❌ 关闭 | 聊天图片/视频（可能超 10GB） |
+| VSCode 缓存 | ❌ 关闭 | Code\Cache + Code\CachedData |
+| NVIDIA 缓存 | ❌ 关闭 | Downloader + Installer2 目录 |
+| **▸ 开发缓存** | | |
+| pip | ❌ 关闭 | `pip cache purge` |
+| npm | ❌ 关闭 | `npm-cache` 目录 |
+| conda | ❌ 关闭 | `conda clean --all -y` |
+| `__pycache__` | ❌ 关闭 | Python 字节码缓存 |
+| Docker | ❌ 关闭 | `docker system prune -a` |
+| **▸ 其他** | | |
+| 关闭休眠 | ❌ 关闭 | 删除 hiberfil.sys，释放数 GB |
 | 分析 C:\ 大目录 | ❌ 关闭 | 扫描 C 盘最大的 12 个目录（较慢） |
-| 安全清理 | ✅ 开启 | 临时文件 + Windows 更新缓存 + 回收站，不会删个人文档 |
-| 关闭休眠 | ❌ 关闭 | 删除 hiberfil.sys，关闭休眠功能 |
-| pip 缓存 | ❌ 关闭 | `pip cache purge` |
-| conda 缓存 | ❌ 关闭 | `conda clean --all -y` |
-| Docker | ❌ 关闭 | `docker system prune -a -f` |
 
 > 清理完成后，日志中会自动显示 **清理前后对比** 和释放的空间大小。
 
@@ -89,12 +117,18 @@ clean_safe_plus.bat
 1. **管理员权限检查** — 自动提权
 2. **显示 C 盘空间** — PowerShell 查询容量 / 剩余
 3. **分析 C 盘大目录（可选）** — 递归统计最大 12 个目录
-4. **安全清理** — 临时文件、更新缓存、回收站
+4. **安全清理（自动）** — 临时文件 / Prefetch / 日志文件 / 缩略图 / 更新缓存 / 回收站
 5. **关闭休眠（可选）** — 删除 hiberfil.sys
-6. **pip 缓存（可选）** — 自动检测 `python -m pip` / `py -m pip` / `pip`
-7. **conda 缓存（可选）** — `conda clean --all -y`
-8. **Docker（可选）** — `docker system prune -a -f`
-9. **显示清理后空间** — 对比前后变化
+6. **浏览器缓存（可选）** — Chrome + Edge + Firefox
+7. **微信缓存（可选）** — WeChat Files\FileStorage
+8. **VSCode 缓存（可选）** — Code\Cache + CachedData
+9. **NVIDIA 缓存（可选）** — Downloader + Installer2
+10. **pip 缓存（可选）** — 自动检测 `python -m pip` / `py -m pip` / `pip`
+11. **npm 缓存（可选）** — `npm-cache` 目录
+12. **conda 缓存（可选）** — `conda clean --all -y`
+13. **`__pycache__`（可选）** — Python 字节码缓存
+14. **Docker（可选）** — `docker system prune -a -f`
+15. **显示清理后空间** — 对比前后变化
 
 ---
 
