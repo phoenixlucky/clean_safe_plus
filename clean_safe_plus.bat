@@ -17,7 +17,7 @@ if not "%errorlevel%"=="0" (
 )
 
 echo ==================================================
-echo C盘清理工具：安全清理 + 可选空间分析
+echo C盘清理工具：安全清理 + 系统优化 + 缓存清理
 echo ==================================================
 echo.
 
@@ -26,7 +26,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Lo
 echo.
 
 echo ==================================================
-echo 一、分析 C:\ 下的大目录
+echo 板块一、分析 C:\ 下的大目录
 echo ==================================================
 echo 单位：GB。这个步骤可能很慢，可按 N 跳过。
 echo.
@@ -56,7 +56,7 @@ if /i not "%gochoice%"=="Y" (
 
 echo.
 echo ==================================================
-echo 二、执行安全清理（自动执行）
+echo 板块二、执行安全清理（自动执行）
 echo ==================================================
 
 echo [1/8] 清理用户临时文件...
@@ -99,10 +99,12 @@ echo 安全清理完成。
 echo.
 
 echo ==================================================
-echo 三、可选清理：关闭休眠
+echo 板块三、系统优化
 echo ==================================================
+echo.
+
+echo --- 3.1 关闭休眠 ---
 echo 说明：关闭休眠会删除 hiberfil.sys，通常释放数 GB 到几十 GB。
-echo。
 echo 影响：不能使用"休眠"功能，普通关机和睡眠通常不受影响。
 echo.
 set /p hchoice=是否关闭休眠？^(Y/N^): 
@@ -110,13 +112,93 @@ if /i "%hchoice%"=="Y" (
     powercfg -h off
     echo 已关闭休眠。
 ) else (
-    echo 已跳过休眠清理。
+    echo 已跳过休眠。
+)
+
+echo.
+echo --- 3.2 系统服务与性能优化 ---
+echo 说明：停止 Xbox 等非必需后台服务、关闭窗口透明效果、禁用 OneDrive 自启动。
+echo.
+set /p sysoptchoice=是否执行系统服务与性能优化？^(Y/N^): 
+if /i "!sysoptchoice!"=="Y" (
+    echo 停止非必要服务...
+    sc stop SysMain >nul 2>&1
+    sc config SysMain start= disabled >nul 2>&1
+    sc stop WSearch >nul 2>&1
+    sc config WSearch start= manual >nul 2>&1
+    sc stop XblAuthManager >nul 2>&1
+    sc config XblAuthManager start= disabled >nul 2>&1
+    sc stop XblGameSave >nul 2>&1
+    sc config XblGameSave start= disabled >nul 2>&1
+    sc stop XboxNetApiSvc >nul 2>&1
+    sc config XboxNetApiSvc start= disabled >nul 2>&1
+
+    echo 优化视觉效果...
+    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f >nul 2>&1
+    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f >nul 2>&1
+
+    echo 禁用 OneDrive 自启动...
+    reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v OneDrive /f >nul 2>&1
+
+    echo 系统服务与性能优化完成
+    echo 建议重启电脑以应用所有设置
+) else (
+    echo 已跳过系统服务与性能优化。
+)
+
+echo.
+echo --- 3.3 网络优化 ---
+echo 说明：关闭后台网络服务、DNS 刷新、协议重置、TCP 参数调优、网卡省电关闭、MTU 优化。
+echo 注意：执行中网络会短暂断开，刷新后会恢复。
+echo.
+set /p netchoice=是否执行网络优化？^(Y/N^): 
+if /i "!netchoice!"=="Y" (
+    echo [1/6] 关闭后台网络服务...
+    sc stop DoSvc >nul 2>&1
+    sc config DoSvc start= disabled >nul 2>&1
+    sc stop DiagTrack >nul 2>&1
+    sc config DiagTrack start= disabled >nul 2>&1
+    sc stop dmwappushservice >nul 2>&1
+    sc config dmwappushservice start= disabled >nul 2>&1
+
+    echo [2/6] 刷新 DNS 缓存...
+    ipconfig /flushdns >nul 2>&1
+
+    echo [3/6] 重置网络协议...
+    netsh winsock reset >nul 2>&1
+    netsh int ip reset >nul 2>&1
+    ipconfig /release >nul 2>&1
+    ipconfig /renew >nul 2>&1
+    netsh interface ip delete arpcache >nul 2>&1
+
+    echo [4/6] TCP/IP 性能参数优化...
+    netsh interface tcp set global autotuninglevel=normal >nul 2>&1
+    netsh interface tcp set global rss=enabled >nul 2>&1
+    netsh interface tcp set global ecncapability=enabled >nul 2>&1
+
+    echo [5/6] Wi-Fi 与网卡省电优化...
+    powercfg -setacvalueindex scheme_current sub_wireless 19cbb8fa-5279-450e-9fac-8a3d5fedd0c1 0 >nul 2>&1
+    powercfg -setdcvalueindex scheme_current sub_wireless 19cbb8fa-5279-450e-9fac-8a3d5fedd0c1 0 >nul 2>&1
+    powercfg -setacvalueindex scheme_current sub_pcie 0ce3997e-6a54-4a3f-b1e8-4f8b9b7d8b6f 0 >nul 2>&1
+    powercfg -setdcvalueindex scheme_current sub_pcie 0ce3997e-6a54-4a3f-b1e8-4f8b9b7d8b6f 0 >nul 2>&1
+
+    echo [6/6] MTU 优化...
+    netsh interface ipv4 set subinterface "Wi-Fi" mtu=1500 store=persistent >nul 2>&1
+    netsh interface ipv4 set subinterface "以太网" mtu=1500 store=persistent >nul 2>&1
+
+    echo 网络优化完成
+    echo 建议重启电脑以应用所有设置
+) else (
+    echo 已跳过网络优化。
 )
 
 echo.
 echo ==================================================
-echo 四、可选清理：浏览器缓存
+echo 板块四、应用缓存清理
 echo ==================================================
+echo.
+
+echo --- 4.1 浏览器缓存 ---
 set /p brchoice=是否清理浏览器缓存（Chrome/Edge/Firefox）？^(Y/N^): 
 if /i "!brchoice!"=="Y" (
     echo 清理 Chrome 缓存...
@@ -147,9 +229,7 @@ if /i "!brchoice!"=="Y" (
 )
 
 echo.
-echo ==================================================
-echo 五、可选清理：微信缓存
-echo ==================================================
+echo --- 4.2 微信缓存 ---
 set /p wxchoice=是否清理微信缓存（聊天图片/视频，可能超 10GB）？^(Y/N^): 
 if /i "!wxchoice!"=="Y" (
     if exist "%USERPROFILE%\Documents\WeChat Files" (
@@ -168,9 +248,7 @@ if /i "!wxchoice!"=="Y" (
 )
 
 echo.
-echo ==================================================
-echo 六、可选清理：VSCode 缓存
-echo ==================================================
+echo --- 4.3 VSCode 缓存 ---
 set /p vscchoice=是否清理 VSCode 缓存？^(Y/N^): 
 if /i "!vscchoice!"=="Y" (
     if exist "%APPDATA%\Code\Cache" (
@@ -188,9 +266,7 @@ if /i "!vscchoice!"=="Y" (
 )
 
 echo.
-echo ==================================================
-echo 七、可选清理：NVIDIA 缓存
-echo ==================================================
+echo --- 4.4 NVIDIA 缓存 ---
 set /p nvchoice=是否清理 NVIDIA 缓存（Downloader + Installer2）？^(Y/N^): 
 if /i "!nvchoice!"=="Y" (
     if exist "C:\ProgramData\NVIDIA Corporation\Downloader" (
@@ -208,8 +284,11 @@ if /i "!nvchoice!"=="Y" (
 
 echo.
 echo ==================================================
-echo 八、可选清理：pip 缓存
+echo 板块五、开发工具缓存
 echo ==================================================
+echo.
+
+echo --- 5.1 pip 缓存 ---
 set "PIP_CMD="
 python -m pip --version >nul 2>&1
 if not errorlevel 1 set "PIP_CMD=python -m pip"
@@ -237,9 +316,7 @@ if defined PIP_CMD (
 )
 
 echo.
-echo ==================================================
-echo 九、可选清理：npm 缓存
-echo ==================================================
+echo --- 5.2 npm 缓存 ---
 set /p npmchoice=是否清理 npm 缓存？^(Y/N^): 
 if /i "!npmchoice!"=="Y" (
     if exist "%APPDATA%\npm-cache" (
@@ -254,9 +331,7 @@ if /i "!npmchoice!"=="Y" (
 )
 
 echo.
-echo ==================================================
-echo 十、可选清理：conda 缓存
-echo ==================================================
+echo --- 5.3 conda 缓存 ---
 where conda >nul 2>&1
 if "%errorlevel%"=="0" (
     echo 已检测到 conda。
@@ -277,9 +352,7 @@ if "%errorlevel%"=="0" (
 )
 
 echo.
-echo ==================================================
-echo 十一、可选清理：__pycache__（Python 字节码缓存）
-echo ==================================================
+echo --- 5.4 __pycache__（Python 字节码缓存） ---
 set /p pycchoice=是否清理所有 __pycache__ 目录？^(Y/N^): 
 if /i "!pycchoice!"=="Y" (
     powershell -NoProfile -ExecutionPolicy Bypass -Command "$count=0; Get-ChildItem C:\ -Directory -Name __pycache__ -Recurse -ErrorAction SilentlyContinue -Depth 4 | ForEach-Object { Remove-Item (Join-Path 'C:\' $_) -Recurse -Force -ErrorAction SilentlyContinue; $count++ }; Write-Host ('  清理了 ' + $count + ' 个 __pycache__ 目录')"
@@ -289,9 +362,7 @@ if /i "!pycchoice!"=="Y" (
 )
 
 echo.
-echo ==================================================
-echo 十二、可选清理：Docker
-echo ==================================================
+echo --- 5.5 Docker ---
 where docker >nul 2>&1
 if "%errorlevel%"=="0" (
     echo [Docker 当前占用]

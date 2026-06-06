@@ -483,8 +483,6 @@ $script:JobScriptBlock = {
 
 function Start-Cleanup {
     $script:CancelRequested = $false
-    $script:diskBefore = Get-DiskInfo
-
     $btnStart.Invoke([Action]{ $btnStart.Enabled = $false; $btnStart.Text = '运行中...' })
     $btnCancel.Invoke([Action]{ $btnCancel.Enabled = $true })
 

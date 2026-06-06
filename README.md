@@ -116,19 +116,15 @@ clean_safe_plus.bat
 
 1. **管理员权限检查** — 自动提权
 2. **显示 C 盘空间** — PowerShell 查询容量 / 剩余
-3. **分析 C 盘大目录（可选）** — 递归统计最大 12 个目录
-4. **安全清理（自动）** — 临时文件 / Prefetch / 日志文件 / 缩略图 / 更新缓存 / 回收站
-5. **关闭休眠（可选）** — 删除 hiberfil.sys
-6. **浏览器缓存（可选）** — Chrome + Edge + Firefox
-7. **微信缓存（可选）** — WeChat Files\FileStorage
-8. **VSCode 缓存（可选）** — Code\Cache + CachedData
-9. **NVIDIA 缓存（可选）** — Downloader + Installer2
-10. **pip 缓存（可选）** — 自动检测 `python -m pip` / `py -m pip` / `pip`
-11. **npm 缓存（可选）** — `npm-cache` 目录
-12. **conda 缓存（可选）** — `conda clean --all -y`
-13. **`__pycache__`（可选）** — Python 字节码缓存
-14. **Docker（可选）** — `docker system prune -a -f`
-15. **显示清理后空间** — 对比前后变化
+3. **板块一：分析 C 盘大目录（可选）** — 递归统计最大 12 个目录
+4. **板块二：安全清理（自动）** — 临时文件 / Prefetch / 日志 / 缩略图 / 更新缓存 / 回收站
+5. **板块三：系统优化（可选）**
+   - 3.1 关闭休眠 — 删除 hiberfil.sys
+   - 3.2 系统服务与性能优化 — 禁用 Xbox 等非必需服务、关闭透明效果、禁用 OneDrive 自启
+   - 3.3 网络优化 — 关闭后台网络服务(DoSvc/DiagTrack/推送)、刷新 DNS、重置协议、TCP 参数调优、网卡省电关闭、MTU 优化
+6. **板块四：应用缓存清理（可选）** — 浏览器 / 微信 / VSCode / NVIDIA
+7. **板块五：开发工具缓存（可选）** — pip / npm / conda / \_\_pycache\_\_ / Docker
+8. **显示清理后空间** — 前后对比
 
 ---
 
