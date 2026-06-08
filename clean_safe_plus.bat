@@ -16,6 +16,17 @@ if not "%errorlevel%"=="0" (
     exit /b
 )
 
+
+rem ============================================================
+rem 辅助子程序：清空指定目录下所有文件和子目录（不删除目录本身）
+rem 用法：call :cleandir "PATH"
+rem ============================================================
+:cleandir
+if not exist "%~1" goto :eof
+del /s /f /q "%~1\*" >nul 2>&1
+for /d %%i in ("%~1\*") do rd /s /q "%%i" >nul 2>&1
+goto :eof
+
 echo ==================================================
 echo C盘清理工具：安全清理 + 系统优化 + 缓存清理
 echo ==================================================
@@ -60,22 +71,17 @@ echo 板块二、执行安全清理（自动执行）
 echo ==================================================
 
 echo [1/8] 清理用户临时文件...
-del /s /f /q "%temp%\*" >nul 2>&1
-for /d %%i in ("%temp%\*") do rd /s /q "%%i" >nul 2>&1
+call :cleandir "%temp%"
 
 echo [2/8] 清理 AppData Local Temp...
-del /s /f /q "C:\Users\%username%\AppData\Local\Temp\*" >nul 2>&1
-for /d %%i in ("C:\Users\%username%\AppData\Local\Temp\*") do rd /s /q "%%i" >nul 2>&1
+call :cleandir "C:\Users\%username%\AppData\Local\Temp"
 
 echo [3/8] 清理 Prefetch（自动重建，安全）...
-del /s /f /q "C:\Windows\Prefetch\*" >nul 2>&1
-for /d %%i in ("C:\Windows\Prefetch\*") do rd /s /q "%%i" >nul 2>&1
+call :cleandir "C:\Windows\Prefetch"
 
 echo [4/8] 清理日志文件（C:\Windows\Logs + WER）...
-del /s /f /q "C:\Windows\Logs\*" >nul 2>&1
-for /d %%i in ("C:\Windows\Logs\*") do rd /s /q "%%i" >nul 2>&1
-del /s /f /q "C:\ProgramData\Microsoft\Windows\WER\*" >nul 2>&1
-for /d %%i in ("C:\ProgramData\Microsoft\Windows\WER\*") do rd /s /q "%%i" >nul 2>&1
+call :cleandir "C:\Windows\Logs"
+call :cleandir "C:\ProgramData\Microsoft\Windows\WER"
 
 echo [5/8] 清理缩略图缓存...
 del /s /f /q "C:\Users\%username%\AppData\Local\Microsoft\Windows\Explorer\thumbcache_*.db" >nul 2>&1
@@ -83,14 +89,12 @@ del /s /f /q "C:\Users\%username%\AppData\Local\Microsoft\Windows\Explorer\thumb
 echo [6/8] 清理 Windows 更新下载缓存...
 net stop wuauserv >nul 2>&1
 net stop bits >nul 2>&1
-del /s /f /q "C:\Windows\SoftwareDistribution\Download\*" >nul 2>&1
-for /d %%i in ("C:\Windows\SoftwareDistribution\Download\*") do rd /s /q "%%i" >nul 2>&1
+call :cleandir "C:\Windows\SoftwareDistribution\Download"
 net start wuauserv >nul 2>&1
 net start bits >nul 2>&1
 
 echo [7/8] 清理 Windows 临时目录...
-del /s /f /q "C:\Windows\Temp\*" >nul 2>&1
-for /d %%i in ("C:\Windows\Temp\*") do rd /s /q "%%i" >nul 2>&1
+call :cleandir "C:\Windows\Temp"
 
 echo [8/8] 清理回收站...
 rd /s /q C:\$Recycle.Bin >nul 2>&1
@@ -390,7 +394,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Lo
 
 echo.
 echo ==================================================
-echo ✅ C盘清理完成！
+echo ?? C盘清理完成！
 echo ==================================================
 echo.
 echo 如果 C 盘仍然很满，请重点检查：

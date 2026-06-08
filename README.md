@@ -1,4 +1,6 @@
-# C盘清理工具
+﻿# C盘清理工具
+
+![版本](https://img.shields.io/badge/version-1.5.0-blue) ![平台](https://img.shields.io/badge/platform-Windows-lightgrey) ![许可](https://img.shields.io/badge/license-MIT-green)
 
 Windows C 盘安全清理工具，提供两种使用方式：
 
@@ -6,6 +8,18 @@ Windows C 盘安全清理工具，提供两种使用方式：
 - 📟 **命令行版** — 传统批处理，适合无 GUI 环境
 
 ---
+
+## 📁 项目结构
+
+```
+clean_safe_plus/
+├── clean_safe_gui.ps1    # 图形界面主程序（PowerShell + WinForms）
+├── clean_safe_plus.bat   # 命令行版主程序（批处理）
+├── launch_gui.bat        # GUI 启动器（自动提权）
+├── README.md             # 本文档
+├── CHANGELOG.md          # 版本历史
+└── reasonix.toml         # Reasonix agent 配置（与本工具无关）
+```
 
 ## 🖥️ 图形界面版（推荐）
 
@@ -125,6 +139,19 @@ clean_safe_plus.bat
 6. **板块四：应用缓存清理（可选）** — 浏览器 / 微信 / VSCode / NVIDIA
 7. **板块五：开发工具缓存（可选）** — pip / npm / conda / \_\_pycache\_\_ / Docker
 8. **显示清理后空间** — 前后对比
+
+## 🛠️ 排错小节
+
+| 现象 | 可能原因 | 解决 |
+|---|---|---|
+| GUI 启动后白屏/不显示 | PowerShell 5.1 缺少 Windows Forms 组件 | 用 `winrm quickconfig` 或重装 .NET Framework 4.8+ |
+| 启动时报"无法加载文件…未数字签名" | 执行策略限制 | 在管理员 PowerShell 执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| 清理 Temp 时部分文件占用 | 文件被其他程序持有 | 关闭浏览器/微信/VSCode 等再重试 |
+| Windows Update 清理后服务未启动 | 某些场景下 wuauserv 不会自动起 | 手动 `net start wuauserv` |
+| `docker system prune` 删除正在用的容器 | 容器仍在运行 | 先 `docker stop $(docker ps -aq)` 再清理 |
+| 清理后 C 盘空间没明显变化 | 占用来自 `C:\Users\<用户>\AppData` / `C:\Windows\WinSxS` 等深层 | 勾选"分析 C 盘大目录"定位 |
+
+更详细的问题排查与历史变更见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 

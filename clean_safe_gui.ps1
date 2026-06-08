@@ -8,8 +8,6 @@
     需要管理员权限运行。
 #>
 
-# 管理员权限由运行时检查，不在编译期限制
-
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -26,7 +24,10 @@ $script:LastLogLine = 0
 
 function Get-DiskInfo {
     try {
-        $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+        $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction Stop
+        if (-not $disk) {
+            return @{ DeviceID = 'C:'; SizeGB = 0; FreeGB = 0; UsedGB = 0; FreePct = 0 }
+        }
         return @{
             DeviceID  = 'C:'
             SizeGB    = [math]::Round($disk.Size / 1GB, 2)
@@ -206,6 +207,31 @@ $script:JobScriptBlock = {
         return [math]::Round($val, 2).ToString('0.00').PadLeft(7)
     }
 
+    # ---- 辅助函数：清空目录内容（统一错误处理与日志格式）----
+    # 默认消息在函数体内构造，避免默认值里的 $Name 在定义时插值
+    function Invoke-DirCleanup {
+        param(
+            [Parameter(Mandatory)] [string]$Path,
+            [Parameter(Mandatory)] [string]$Name,
+            [string]$SuccessMessage,
+            [string]$FailureMessage,
+            [string]$NotFoundMessage
+        )
+        if (-not $SuccessMessage)  { $SuccessMessage  = "  OK $Name 清理完成" }
+        if (-not $FailureMessage)  { $FailureMessage  = "  FAIL $Name 出错" }
+        if (-not $NotFoundMessage) { $NotFoundMessage = "  - 未找到 $Name" }
+        if (-not (Test-Path -LiteralPath $Path)) {
+            if ($NotFoundMessage) { Write-LogBg $NotFoundMessage 'Gray' $false }
+            return
+        }
+        try {
+            Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue |
+                Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+            Write-LogBg $SuccessMessage 'Green' $false
+        } catch {
+            Write-LogBg "$FailureMessage : $_" 'Red' $false
+        }
+    }
     try {
         # ========== 1. 分析目录 ==========
         if ($state.Analyze) {
@@ -238,38 +264,24 @@ $script:JobScriptBlock = {
             )
             foreach ($t in $targets) {
                 Write-LogBg "  清理 $($t.Name): $($t.Path)" 'Gray' $false
-                if (Test-Path $t.Path) {
-                    try {
-                        Remove-Item -LiteralPath "$($t.Path)\*" -Recurse -Force -ErrorAction SilentlyContinue
-                        Get-ChildItem -LiteralPath $t.Path -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-                        Write-LogBg "  OK $($t.Name) 清理完成" 'Green' $false
-                    } catch { Write-LogBg "  FAIL $($t.Name) 出错: $_" 'Red' $false }
-                }
+                Invoke-DirCleanup -Path $t.Path -Name $t.Name -SuccessMessage "  OK $($t.Name) 清理完成" -NotFoundMessage ""
             }
             Set-ProgressBg 11 '临时文件 OK'
         }
 
         # ========== 3. Prefetch ==========
         if ($state.CleanPrefetch) {
-            $pPath = "$env:SystemRoot\Prefetch"
-            if (Test-Path $pPath) {
-                Remove-Item "$pPath\*" -Recurse -Force -ErrorAction SilentlyContinue
-                Write-LogBg '  OK Prefetch 已清理（自动重建，安全）' 'Green' $false
-            }
+            Invoke-DirCleanup -Path "$env:SystemRoot\Prefetch" -Name "Prefetch" -SuccessMessage "  OK Prefetch 已清理（自动重建，安全）" -NotFoundMessage ""
             Set-ProgressBg 14 'Prefetch OK'
         }
 
         # ========== 4. 日志文件 ==========
         if ($state.CleanLogs) {
-            $logsTargets = @(
-                @{ Name = 'Windows Logs';  Path = "$env:SystemRoot\Logs" }
+            foreach ($t in @(
+                @{ Name = 'Windows Logs';  Path = "$env:SystemRoot\Logs" },
                 @{ Name = 'WER 错误报告';   Path = "$env:ProgramData\Microsoft\Windows\WER" }
-            )
-            foreach ($t in $logsTargets) {
-                if (Test-Path $t.Path) {
-                    Remove-Item "$($t.Path)\*" -Recurse -Force -ErrorAction SilentlyContinue
-                    Write-LogBg "  OK $($t.Name) 已清理" 'Green' $false
-                }
+            )) {
+                Invoke-DirCleanup -Path $t.Path -Name $t.Name -SuccessMessage "  OK $($t.Name) 已清理" -NotFoundMessage ""
             }
             Set-ProgressBg 17 '日志文件 OK'
         }
@@ -290,10 +302,7 @@ $script:JobScriptBlock = {
             Get-Service -Name wuauserv, bits -ErrorAction SilentlyContinue |
                 Where-Object { $_.Status -eq 'Running' } | Stop-Service -Force -ErrorAction SilentlyContinue
             $dlPath = "$env:SystemRoot\SoftwareDistribution\Download"
-            if (Test-Path $dlPath) {
-                Remove-Item "$dlPath\*" -Recurse -Force -ErrorAction SilentlyContinue
-                Write-LogBg '  OK Windows 更新缓存已清理' 'Green' $false
-            }
+            Invoke-DirCleanup -Path $dlPath -Name "Windows 更新缓存" -SuccessMessage "  OK Windows 更新缓存已清理" -NotFoundMessage ""
             Get-Service -Name wuauserv, bits -ErrorAction SilentlyContinue |
                 Where-Object { $_.Status -eq 'Stopped' } | Start-Service -ErrorAction SilentlyContinue
             Set-ProgressBg 24 '更新缓存 OK'
@@ -308,21 +317,13 @@ $script:JobScriptBlock = {
 
         # ========== 8. Chrome 缓存 ==========
         if ($state.CleanChrome) {
-            $chromeCache = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache"
-            if (Test-Path $chromeCache) {
-                Remove-Item "$chromeCache\*" -Recurse -Force -ErrorAction SilentlyContinue
-                Write-LogBg '  OK Chrome 缓存已清理' 'Green' $false
-            } else { Write-LogBg '  - 未找到 Chrome 缓存' 'Gray' $false }
+            Invoke-DirCleanup -Path "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache" -Name "Chrome 缓存" -SuccessMessage "  OK Chrome 缓存已清理" -NotFoundMessage "  - 未找到 Chrome 缓存"
             Set-ProgressBg 29 'Chrome OK'
         }
 
         # ========== 9. Edge 缓存 ==========
         if ($state.CleanEdge) {
-            $edgeCache = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache"
-            if (Test-Path $edgeCache) {
-                Remove-Item "$edgeCache\*" -Recurse -Force -ErrorAction SilentlyContinue
-                Write-LogBg '  OK Edge 缓存已清理' 'Green' $false
-            } else { Write-LogBg '  - 未找到 Edge 缓存' 'Gray' $false }
+            Invoke-DirCleanup -Path "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache" -Name "Edge 缓存" -SuccessMessage "  OK Edge 缓存已清理" -NotFoundMessage "  - 未找到 Edge 缓存"
             Set-ProgressBg 31 'Edge OK'
         }
 
@@ -331,8 +332,7 @@ $script:JobScriptBlock = {
             $ffDir = "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles"
             if (Test-Path $ffDir) {
                 Get-ChildItem "$ffDir\*\cache2" -ErrorAction SilentlyContinue | ForEach-Object {
-                    Remove-Item "$($_.FullName)\*" -Recurse -Force -ErrorAction SilentlyContinue
-                    Write-LogBg "  OK Firefox 缓存: $($_.FullName)" 'Green' $false
+                    Invoke-DirCleanup -Path $_.FullName -Name "Firefox 缓存" -SuccessMessage "  OK Firefox 缓存: $($_.FullName)" -NotFoundMessage ""
                 }
             } else { Write-LogBg '  - 未找到 Firefox Profiles' 'Gray' $false }
             Set-ProgressBg 33 'Firefox OK'
@@ -344,10 +344,7 @@ $script:JobScriptBlock = {
             if (Test-Path $wxPath) {
                 Get-ChildItem $wxPath -Directory -ErrorAction SilentlyContinue | ForEach-Object {
                     $fs = Join-Path $_.FullName "FileStorage"
-                    if (Test-Path $fs) {
-                        Remove-Item "$fs\*" -Recurse -Force -ErrorAction SilentlyContinue
-                        Write-LogBg "  OK 微信缓存: $($_.Name)" 'Green' $false
-                    }
+                    Invoke-DirCleanup -Path $fs -Name "微信缓存" -SuccessMessage "  OK 微信缓存: $($_.Name)" -NotFoundMessage ""
                 }
             } else { Write-LogBg '  - 未找到微信缓存' 'Gray' $false }
             Set-ProgressBg 37 '微信缓存 OK'
@@ -355,21 +352,15 @@ $script:JobScriptBlock = {
 
         # ========== 12. VSCode 缓存 ==========
         if ($state.CleanVSCode) {
-            $vscCache = "$env:APPDATA\Code\Cache"
-            $vscCachedData = "$env:APPDATA\Code\CachedData"
-            if (Test-Path $vscCache) { Remove-Item "$vscCache\*" -Recurse -Force -ErrorAction SilentlyContinue; Write-LogBg '  OK VSCode Cache' 'Green' $false }
-            if (Test-Path $vscCachedData) { Remove-Item "$vscCachedData\*" -Recurse -Force -ErrorAction SilentlyContinue; Write-LogBg '  OK VSCode CachedData' 'Green' $false }
+            Invoke-DirCleanup -Path "$env:APPDATA\Code\Cache" -Name "VSCode Cache" -SuccessMessage "  OK VSCode Cache" -NotFoundMessage ""
+            Invoke-DirCleanup -Path "$env:APPDATA\Code\CachedData" -Name "VSCode CachedData" -SuccessMessage "  OK VSCode CachedData" -NotFoundMessage ""
             Set-ProgressBg 39 'VSCode OK'
         }
 
         # ========== 13. NVIDIA 缓存 ==========
         if ($state.CleanNVIDIA) {
-            $nvTargets = @("$env:ProgramData\NVIDIA Corporation\Downloader", "${env:ProgramFiles}\NVIDIA Corporation\Installer2")
-            foreach ($t in $nvTargets) {
-                if (Test-Path $t) {
-                    Remove-Item "$t\*" -Recurse -Force -ErrorAction SilentlyContinue
-                    Write-LogBg "  OK NVIDIA 缓存: $t" 'Green' $false
-                }
+            foreach ($t in @("$env:ProgramData\NVIDIA Corporation\Downloader", "${env:ProgramFiles}\NVIDIA Corporation\Installer2")) {
+                Invoke-DirCleanup -Path $t -Name "NVIDIA 缓存" -SuccessMessage "  OK NVIDIA 缓存: $t" -NotFoundMessage ""
             }
             Set-ProgressBg 42 'NVIDIA OK'
         }
@@ -390,18 +381,13 @@ $script:JobScriptBlock = {
             Set-ProgressBg 46 'pip 缓存 OK'
         }
 
-        # ========== 15. npm 缓存 ==========
+                # ========== 15. npm 缓存 ==========
         if ($state.CleanNpm) {
-            $npmCache = "$env:APPDATA\npm-cache"
-            if (Test-Path $npmCache) {
-                $sizeBefore = (Get-ChildItem $npmCache -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
-                Remove-Item "$npmCache\*" -Recurse -Force -ErrorAction SilentlyContinue
-                Write-LogBg "  OK npm 缓存已清理" 'Green' $false
-            } else { Write-LogBg '  - 未找到 npm 缓存' 'Gray' $false }
+            Invoke-DirCleanup -Path "$env:APPDATA\npm-cache" -Name "npm 缓存" -SuccessMessage "  OK npm 缓存已清理" -NotFoundMessage "  - 未找到 npm 缓存"
             Set-ProgressBg 48 'npm OK'
         }
 
-        # ========== 16. conda 缓存 ==========
+# ========== 16. conda 缓存 ==========
         if ($state.CleanConda) {
             $condaPath = (Get-Command conda -ErrorAction SilentlyContinue).Source
             if ($condaPath) {
@@ -453,7 +439,7 @@ $script:JobScriptBlock = {
 
         # ========== 结果显示 ==========
         Set-ProgressBg 70 '正在查询清理后空间...'
-        $diskAfter = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+        $diskAfter = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction Stop -ErrorAction Stop
         $freeAfter = [math]::Round($diskAfter.FreeSpace / 1GB, 2)
         $freeBefore = $state.BeforeFreeGB
         $freedGB = [math]::Round($freeAfter - $freeBefore, 2)
@@ -493,7 +479,15 @@ function Start-Cleanup {
     Remove-Item $progressFile -Force -ErrorAction SilentlyContinue
 
     $script:LastLogLine = 0
-    $script:Job = Start-Job -Name 'CleanupJob' -ScriptBlock $script:JobScriptBlock -ArgumentList $PSCommandPath
+    try {
+        $script:Job = Start-Job -Name 'CleanupJob' -ScriptBlock $script:JobScriptBlock -ArgumentList $PSCommandPath
+    } catch {
+        Write-Log -Text ('启动清理作业失败: ' + $_.Exception.Message) -Color 'Red' -Bold $true
+        $btnStart.Invoke([Action]{ $btnStart.Enabled = $true; $btnStart.Text = '开始清理' })
+        $btnCancel.Invoke([Action]{ $btnCancel.Enabled = $false })
+        $lblStatus.Invoke([Action]{ $lblStatus.Text = '启动失败' })
+        return
+    }
 
     # 启动轮询 timer
     $timerPoll.Interval = 300
