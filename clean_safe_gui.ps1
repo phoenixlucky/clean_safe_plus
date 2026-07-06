@@ -207,6 +207,27 @@ $script:JobScriptBlock = {
         return [math]::Round($val, 2).ToString('0.00').PadLeft(7)
     }
 
+    function Format-Size {
+        param([double]$Bytes)
+        if ($Bytes -ge 1GB) { return ('{0:N2} GB' -f ($Bytes / 1GB)) }
+        if ($Bytes -ge 1MB) { return ('{0:N2} MB' -f ($Bytes / 1MB)) }
+        if ($Bytes -ge 1KB) { return ('{0:N2} KB' -f ($Bytes / 1KB)) }
+        return ('{0:N0} B' -f $Bytes)
+    }
+
+    function Get-PathSizeBytes {
+        param([string]$Path)
+        if (-not (Test-Path -LiteralPath $Path)) { return 0 }
+        try {
+            $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+            if ($item -and -not $item.PSIsContainer) { return [double]$item.Length }
+            $sum = (Get-ChildItem -LiteralPath $Path -Force -Recurse -File -ErrorAction SilentlyContinue |
+                Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
+            if ($sum) { return [double]$sum }
+        } catch {}
+        return 0
+    }
+
     # ---- 辅助函数：清空目录内容（统一错误处理与日志格式）----
     # 默认消息在函数体内构造，避免默认值里的 $Name 在定义时插值
     function Invoke-DirCleanup {
@@ -220,17 +241,56 @@ $script:JobScriptBlock = {
         if (-not $SuccessMessage)  { $SuccessMessage  = "  OK $Name 清理完成" }
         if (-not $FailureMessage)  { $FailureMessage  = "  FAIL $Name 出错" }
         if (-not $NotFoundMessage) { $NotFoundMessage = "  - 未找到 $Name" }
+        if ([string]::IsNullOrWhiteSpace($Path)) {
+            Write-LogBg "  - 跳过空路径: $Name" 'Gray' $false
+            return
+        }
+        try {
+            $fullPath = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
+            if ($fullPath -match '^[A-Za-z]:$' -or $fullPath -eq '\') {
+                Write-LogBg "  - 跳过危险路径: $Path" 'Red' $false
+                return
+            }
+        } catch {
+            Write-LogBg "  - 跳过无效路径: $Path" 'Red' $false
+            return
+        }
         if (-not (Test-Path -LiteralPath $Path)) {
             if ($NotFoundMessage) { Write-LogBg $NotFoundMessage 'Gray' $false }
             return
         }
         try {
+            $beforeBytes = Get-PathSizeBytes $Path
             Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue |
                 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-            Write-LogBg $SuccessMessage 'Green' $false
+            $afterBytes = Get-PathSizeBytes $Path
+            $freedBytes = [math]::Max(0, $beforeBytes - $afterBytes)
+            if ($freedBytes -gt 0) {
+                Write-LogBg "$SuccessMessage，释放 $(Format-Size $freedBytes)" 'Green' $false
+            } else {
+                Write-LogBg "$SuccessMessage，未发现可释放空间" 'Green' $false
+            }
         } catch {
             Write-LogBg "$FailureMessage : $_" 'Red' $false
         }
+    }
+
+    function Invoke-FileCleanup {
+        param(
+            [Parameter(Mandatory)] [string]$Pattern,
+            [Parameter(Mandatory)] [string]$Name
+        )
+        $files = @(Get-ChildItem -Path $Pattern -Force -File -ErrorAction SilentlyContinue)
+        if ($files.Count -eq 0) {
+            Write-LogBg "  - 未找到 $Name" 'Gray' $false
+            return
+        }
+        $beforeBytes = [double](($files | Measure-Object -Property Length -Sum).Sum)
+        $files | Remove-Item -Force -ErrorAction SilentlyContinue
+        $afterFiles = @(Get-ChildItem -Path $Pattern -Force -File -ErrorAction SilentlyContinue)
+        $afterBytes = [double](($afterFiles | Measure-Object -Property Length -Sum).Sum)
+        $freedBytes = [math]::Max(0, $beforeBytes - $afterBytes)
+        Write-LogBg "  OK $Name 已清理，释放 $(Format-Size $freedBytes)" 'Green' $false
     }
     try {
         # ========== 1. 分析目录 ==========
@@ -290,8 +350,7 @@ $script:JobScriptBlock = {
         if ($state.CleanThumbnail) {
             $thumbDir = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer"
             if (Test-Path $thumbDir) {
-                Remove-Item "$thumbDir\thumbcache_*.db" -Force -ErrorAction SilentlyContinue
-                Write-LogBg '  OK 缩略图缓存已清理' 'Green' $false
+                Invoke-FileCleanup -Pattern "$thumbDir\thumbcache_*.db" -Name '缩略图缓存'
             }
             Set-ProgressBg 20 '缩略图缓存 OK'
         }
@@ -310,20 +369,34 @@ $script:JobScriptBlock = {
 
         # ========== 7. 回收站 ==========
         if ($state.CleanRecycle) {
-            cmd.exe /c "rd /s /q C:\$Recycle.Bin 2>nul"
+            cmd.exe /c 'rd /s /q C:\$Recycle.Bin 2>nul'
             Write-LogBg '  OK 回收站已清空' 'Green' $false
             Set-ProgressBg 27 '回收站 OK'
         }
 
         # ========== 8. Chrome 缓存 ==========
         if ($state.CleanChrome) {
-            Invoke-DirCleanup -Path "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache" -Name "Chrome 缓存" -SuccessMessage "  OK Chrome 缓存已清理" -NotFoundMessage "  - 未找到 Chrome 缓存"
+            $chromeRoot = "$env:LOCALAPPDATA\Google\Chrome\User Data"
+            if (Test-Path -LiteralPath $chromeRoot) {
+                Get-ChildItem -LiteralPath $chromeRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                    foreach ($sub in @('Cache', 'Code Cache', 'GPUCache', 'ShaderCache', 'GrShaderCache', 'Service Worker\CacheStorage')) {
+                        Invoke-DirCleanup -Path (Join-Path $_.FullName $sub) -Name "Chrome $($_.Name) $sub" -SuccessMessage "  OK Chrome $($_.Name) $sub" -NotFoundMessage ""
+                    }
+                }
+            } else { Write-LogBg '  - 未找到 Chrome 用户数据目录' 'Gray' $false }
             Set-ProgressBg 29 'Chrome OK'
         }
 
         # ========== 9. Edge 缓存 ==========
         if ($state.CleanEdge) {
-            Invoke-DirCleanup -Path "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache" -Name "Edge 缓存" -SuccessMessage "  OK Edge 缓存已清理" -NotFoundMessage "  - 未找到 Edge 缓存"
+            $edgeRoot = "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
+            if (Test-Path -LiteralPath $edgeRoot) {
+                Get-ChildItem -LiteralPath $edgeRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                    foreach ($sub in @('Cache', 'Code Cache', 'GPUCache', 'ShaderCache', 'GrShaderCache', 'Service Worker\CacheStorage')) {
+                        Invoke-DirCleanup -Path (Join-Path $_.FullName $sub) -Name "Edge $($_.Name) $sub" -SuccessMessage "  OK Edge $($_.Name) $sub" -NotFoundMessage ""
+                    }
+                }
+            } else { Write-LogBg '  - 未找到 Edge 用户数据目录' 'Gray' $false }
             Set-ProgressBg 31 'Edge OK'
         }
 
@@ -331,8 +404,10 @@ $script:JobScriptBlock = {
         if ($state.CleanFirefox) {
             $ffDir = "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles"
             if (Test-Path $ffDir) {
-                Get-ChildItem "$ffDir\*\cache2" -ErrorAction SilentlyContinue | ForEach-Object {
-                    Invoke-DirCleanup -Path $_.FullName -Name "Firefox 缓存" -SuccessMessage "  OK Firefox 缓存: $($_.FullName)" -NotFoundMessage ""
+                Get-ChildItem -LiteralPath $ffDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                    foreach ($sub in @('cache2', 'startupCache')) {
+                        Invoke-DirCleanup -Path (Join-Path $_.FullName $sub) -Name "Firefox $($_.Name) $sub" -SuccessMessage "  OK Firefox $($_.Name) $sub" -NotFoundMessage ""
+                    }
                 }
             } else { Write-LogBg '  - 未找到 Firefox Profiles' 'Gray' $false }
             Set-ProgressBg 33 'Firefox OK'
@@ -340,20 +415,45 @@ $script:JobScriptBlock = {
 
         # ========== 11. 微信缓存 ==========
         if ($state.CleanWeChat) {
-            $wxPath = "$env:USERPROFILE\Documents\WeChat Files"
-            if (Test-Path $wxPath) {
-                Get-ChildItem $wxPath -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-                    $fs = Join-Path $_.FullName "FileStorage"
-                    Invoke-DirCleanup -Path $fs -Name "微信缓存" -SuccessMessage "  OK 微信缓存: $($_.Name)" -NotFoundMessage ""
+            $wechatStoragePaths = [System.Collections.Generic.List[string]]::new()
+            $wechatRoots = @(
+                "$env:USERPROFILE\Documents\WeChat Files",
+                "$env:USERPROFILE\Documents\xwechat_files",
+                "$env:USERPROFILE\WeChat Files",
+                "$env:APPDATA\Tencent\WeChat Files",
+                "$env:LOCALAPPDATA\Tencent\WeChat Files"
+            )
+            foreach ($root in $wechatRoots) {
+                if (-not (Test-Path -LiteralPath $root)) { continue }
+                $direct = Join-Path $root 'FileStorage'
+                if (Test-Path -LiteralPath $direct) { $wechatStoragePaths.Add($direct) }
+                Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                    $fs = Join-Path $_.FullName 'FileStorage'
+                    if (Test-Path -LiteralPath $fs) { $wechatStoragePaths.Add($fs) }
                 }
-            } else { Write-LogBg '  - 未找到微信缓存' 'Gray' $false }
+            }
+            foreach ($root in @("$env:USERPROFILE\Documents", "$env:APPDATA\Tencent", "$env:LOCALAPPDATA\Tencent")) {
+                if (-not (Test-Path -LiteralPath $root)) { continue }
+                Get-ChildItem -LiteralPath $root -Directory -Filter FileStorage -Recurse -Depth 5 -ErrorAction SilentlyContinue |
+                    Where-Object { $_.FullName -match '(?i)(WeChat Files|xwechat_files|Weixin)' } |
+                    ForEach-Object { $wechatStoragePaths.Add($_.FullName) }
+            }
+            $wechatStoragePaths = $wechatStoragePaths | Select-Object -Unique
+            if ($wechatStoragePaths.Count -gt 0) {
+                foreach ($fs in $wechatStoragePaths) {
+                    Invoke-DirCleanup -Path $fs -Name "微信缓存" -SuccessMessage "  OK 微信缓存: $fs" -NotFoundMessage ""
+                }
+            } else {
+                Write-LogBg '  - 未找到微信缓存；可在微信 设置 > 文件管理 中查看保存位置' 'Gray' $false
+            }
             Set-ProgressBg 37 '微信缓存 OK'
         }
 
         # ========== 12. VSCode 缓存 ==========
         if ($state.CleanVSCode) {
-            Invoke-DirCleanup -Path "$env:APPDATA\Code\Cache" -Name "VSCode Cache" -SuccessMessage "  OK VSCode Cache" -NotFoundMessage ""
-            Invoke-DirCleanup -Path "$env:APPDATA\Code\CachedData" -Name "VSCode CachedData" -SuccessMessage "  OK VSCode CachedData" -NotFoundMessage ""
+            foreach ($sub in @('Cache', 'CachedData', 'Code Cache', 'GPUCache', 'logs', 'CachedExtensionVSIXs')) {
+                Invoke-DirCleanup -Path (Join-Path "$env:APPDATA\Code" $sub) -Name "VSCode $sub" -SuccessMessage "  OK VSCode $sub" -NotFoundMessage ""
+            }
             Set-ProgressBg 39 'VSCode OK'
         }
 
@@ -381,13 +481,14 @@ $script:JobScriptBlock = {
             Set-ProgressBg 46 'pip 缓存 OK'
         }
 
-                # ========== 15. npm 缓存 ==========
+        # ========== 15. npm 缓存 ==========
         if ($state.CleanNpm) {
             Invoke-DirCleanup -Path "$env:APPDATA\npm-cache" -Name "npm 缓存" -SuccessMessage "  OK npm 缓存已清理" -NotFoundMessage "  - 未找到 npm 缓存"
+            Invoke-DirCleanup -Path "$env:LOCALAPPDATA\npm-cache" -Name "npm LocalAppData 缓存" -SuccessMessage "  OK npm LocalAppData 缓存已清理" -NotFoundMessage ""
             Set-ProgressBg 48 'npm OK'
         }
 
-# ========== 16. conda 缓存 ==========
+        # ========== 16. conda 缓存 ==========
         if ($state.CleanConda) {
             $condaPath = (Get-Command conda -ErrorAction SilentlyContinue).Source
             if ($condaPath) {
@@ -437,9 +538,33 @@ $script:JobScriptBlock = {
             Set-ProgressBg 65 '休眠 OK'
         }
 
+        # ========== 20. VPN/TUN 网络修复 ==========
+        if ($state.FixVpnTun) {
+            Write-LogBg '执行 VPN/TUN 网络修复...' 'Cyan' $true
+            Write-LogBg '  刷新 DNS、重置 Winsock/IP、恢复 WinHTTP 代理与活动网卡自动 metric' 'Gray' $false
+            cmd.exe /c "ipconfig /flushdns >nul 2>&1"
+            cmd.exe /c "netsh winsock reset >nul 2>&1"
+            cmd.exe /c "netsh int ip reset >nul 2>&1"
+            cmd.exe /c "netsh winhttp reset proxy >nul 2>&1"
+            Get-Service -Name Dnscache, iphlpsvc -ErrorAction SilentlyContinue | ForEach-Object {
+                try {
+                    Set-Service -Name $_.Name -StartupType Automatic -ErrorAction SilentlyContinue
+                    if ($_.Status -ne 'Running') { Start-Service -Name $_.Name -ErrorAction SilentlyContinue }
+                } catch {}
+            }
+            Get-NetAdapter -ErrorAction SilentlyContinue |
+                Where-Object { $_.Status -eq 'Up' } |
+                ForEach-Object {
+                    Get-NetIPInterface -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue |
+                        Set-NetIPInterface -AutomaticMetric Enabled -ErrorAction SilentlyContinue
+                }
+            Write-LogBg '  OK VPN/TUN 网络修复已执行，建议重启电脑后再开启 TUN' 'Green' $false
+            Set-ProgressBg 68 'VPN/TUN 修复 OK'
+        }
+
         # ========== 结果显示 ==========
         Set-ProgressBg 70 '正在查询清理后空间...'
-        $diskAfter = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction Stop -ErrorAction Stop
+        $diskAfter = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction Stop
         $freeAfter = [math]::Round($diskAfter.FreeSpace / 1GB, 2)
         $freeBefore = $state.BeforeFreeGB
         $freedGB = [math]::Round($freeAfter - $freeBefore, 2)
@@ -558,14 +683,14 @@ function Build-Form {
         $btnW = 140; $btnH = 38
         $script:btnStart.Size = [System.Drawing.Size]::new($btnW, $btnH)
         $script:btnCancel.Size = [System.Drawing.Size]::new(100, $btnH)
-        $script:btnSelectAll.Size = [System.Drawing.Size]::new(80, 28)
+        $script:btnSelectAll.Size = [System.Drawing.Size]::new(96, 28)
         $script:btnClearAll.Size = [System.Drawing.Size]::new(90, 28)
 
         $btnRowY = $topPad + 490
         $script:btnStart.Location = [System.Drawing.Point]::new(20, $btnRowY)
         $script:btnCancel.Location = [System.Drawing.Point]::new(170, $btnRowY)
         $rightEdge = $cardW + 20
-        $script:btnSelectAll.Location = [System.Drawing.Point]::new($rightEdge - 180, $topPad + 495)
+        $script:btnSelectAll.Location = [System.Drawing.Point]::new($rightEdge - 196, $topPad + 495)
         $script:btnClearAll.Location = [System.Drawing.Point]::new($rightEdge - 100, $topPad + 495)
 
         # 状态条 + 进度条
@@ -746,7 +871,7 @@ function Build-Form {
     $innerPanel.Controls.Add($chkPip)
 
     $script:chkNpm = New-Object System.Windows.Forms.CheckBox
-    $chkNpm.Text = 'npm 缓存 (npm cache clean)'
+    $chkNpm.Text = 'npm 缓存目录'
     $chkNpm.Location = [System.Drawing.Point]::new($col2x, 318); $chkNpm.Size = [System.Drawing.Size]::new($cbW, $cbH)
     $chkNpm.Checked = $false
     $innerPanel.Controls.Add($chkNpm)
@@ -784,6 +909,12 @@ function Build-Form {
     $chkAnalyze.Checked = $false
     $innerPanel.Controls.Add($chkAnalyze)
 
+    $script:chkFixVpnTun = New-Object System.Windows.Forms.CheckBox
+    $chkFixVpnTun.Text = '修复 VPN/TUN 开启后无法上网'
+    $chkFixVpnTun.Location = [System.Drawing.Point]::new($col1x, 460); $chkFixVpnTun.Size = [System.Drawing.Size]::new($cbW, $cbH)
+    $chkFixVpnTun.Checked = $false
+    $innerPanel.Controls.Add($chkFixVpnTun)
+
     $form.Controls.Add($grpOptions)
 
     # ---- 按钮区域 ----
@@ -798,6 +929,22 @@ function Build-Form {
     $btnStart.Cursor = 'Hand'
     $btnStart.Add_Click({
         $beforeInfo = Get-DiskInfo
+        $highImpactItems = @()
+        if ($chkWeChat.Checked) { $highImpactItems += '微信文件缓存' }
+        if ($chkConda.Checked) { $highImpactItems += 'conda clean --all' }
+        if ($chkDocker.Checked) { $highImpactItems += 'Docker system prune -a' }
+        if ($chkHibernate.Checked) { $highImpactItems += '关闭休眠' }
+        if ($chkFixVpnTun.Checked) { $highImpactItems += 'VPN/TUN 网络修复' }
+        if ($highImpactItems.Count -gt 0) {
+            $message = "本次包含高影响操作：`r`n- " + ($highImpactItems -join "`r`n- ") + "`r`n`r`n确认继续？"
+            $confirm = [System.Windows.Forms.MessageBox]::Show(
+                $message,
+                '确认高影响操作',
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            )
+            if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+        }
         $state = @{
             Analyze       = $chkAnalyze.Checked
             CleanTemp     = $chkTemp.Checked
@@ -818,13 +965,20 @@ function Build-Form {
             CleanPyCache  = $chkPyCache.Checked
             CleanDocker   = $chkDocker.Checked
             DisableHibernate = $chkHibernate.Checked
+            FixVpnTun     = $chkFixVpnTun.Checked
             BeforeFreeGB  = $beforeInfo.FreeGB
             BeforeUsedGB  = $beforeInfo.UsedGB
         }
         $state | ConvertTo-Json | Out-File (Join-Path $env:TEMP "cleanup_gui_state.txt") -Encoding UTF8 -Force
         $script:LastLogLine = 0
         $txtLog.Clear()
-        Write-Log -Text '开始执行清理...' -Color 'Cyan' -Bold $true
+        $selectedCount = @(
+            $chkAnalyze, $chkTemp, $chkPrefetch, $chkUpdate, $chkLogs, $chkThumbnail,
+            $chkRecycle, $chkChrome, $chkEdge, $chkFirefox, $chkWeChat, $chkVSCode,
+            $chkNVIDIA, $chkPip, $chkNpm, $chkConda, $chkPyCache, $chkDocker,
+            $chkHibernate, $chkFixVpnTun
+        ).Where({ $_.Checked }).Count
+        Write-Log -Text "开始执行清理... 已选 $selectedCount 项" -Color 'Cyan' -Bold $true
         Start-Cleanup
     })
 
@@ -841,8 +995,8 @@ function Build-Form {
     $btnCancel.Add_Click({ Stop-Cleanup })
 
     $script:btnSelectAll = New-Object System.Windows.Forms.Button
-    $btnSelectAll.Text = '全选'
-    $btnSelectAll.Size = [System.Drawing.Size]::new(80, 28)
+    $btnSelectAll.Text = '安全全选'
+    $btnSelectAll.Size = [System.Drawing.Size]::new(96, 28)
     $btnSelectAll.Font = [System.Drawing.Font]::new('微软雅黑', 8)
     $btnSelectAll.Cursor = 'Hand'
     $btnSelectAll.Add_Click({
@@ -850,10 +1004,10 @@ function Build-Form {
         $chkUpdate.Checked = $true; $chkLogs.Checked = $true
         $chkThumbnail.Checked = $true; $chkRecycle.Checked = $true
         $chkChrome.Checked = $true; $chkEdge.Checked = $true; $chkFirefox.Checked = $true
-        $chkWeChat.Checked = $true; $chkVSCode.Checked = $true; $chkNVIDIA.Checked = $true
-        $chkPip.Checked = $true; $chkNpm.Checked = $true; $chkConda.Checked = $true
-        $chkPyCache.Checked = $true; $chkDocker.Checked = $true
-        $chkHibernate.Checked = $true; $chkAnalyze.Checked = $true
+        $chkWeChat.Checked = $false; $chkVSCode.Checked = $true; $chkNVIDIA.Checked = $true
+        $chkPip.Checked = $true; $chkNpm.Checked = $true; $chkConda.Checked = $false
+        $chkPyCache.Checked = $false; $chkDocker.Checked = $false
+        $chkHibernate.Checked = $false; $chkAnalyze.Checked = $false; $chkFixVpnTun.Checked = $false
     })
 
     $script:btnClearAll = New-Object System.Windows.Forms.Button
@@ -869,7 +1023,7 @@ function Build-Form {
         $chkWeChat.Checked = $false; $chkVSCode.Checked = $false; $chkNVIDIA.Checked = $false
         $chkPip.Checked = $false; $chkNpm.Checked = $false; $chkConda.Checked = $false
         $chkPyCache.Checked = $false; $chkDocker.Checked = $false
-        $chkHibernate.Checked = $false; $chkAnalyze.Checked = $false
+        $chkHibernate.Checked = $false; $chkAnalyze.Checked = $false; $chkFixVpnTun.Checked = $false
     })
 
     $form.Controls.Add($btnStart)

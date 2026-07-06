@@ -39,6 +39,7 @@ clean_safe_plus/
 1. 检测管理员权限 → 不是则弹窗提权
 2. 加载界面，显示 C 盘空间
 3. 勾选需要的清理项 → 点击「开始清理」
+4. 如果包含微信、Docker、关闭休眠、VPN/TUN 修复等高影响项，会先弹窗二次确认
 
 ### 界面功能
 
@@ -65,8 +66,9 @@ clean_safe_plus/
 │  ☐ Docker                                            │
 │  ▸ 其他                                              │
 │  ☐ 关闭休眠          ☐ 分析 C 盘大目录               │
+│  ☐ 修复 VPN/TUN 开启后无法上网                       │
 ├──────────────────────────────────────────────────────┤
-│  [▶ 开始清理] [⏹ 取消] [☑ 全选] [☐ 取消全选]       │
+│  [▶ 开始清理] [⏹ 取消] [☑ 安全全选] [☐ 取消全选]   │
 │  ████████████████████░░░░░░  60%  Docker OK           │
 ├──────────────────────────────────────────────────────┤
 │  [14:32:05] ▶ 开始清理临时文件...                    │
@@ -91,24 +93,27 @@ clean_safe_plus/
 | 缩略图缓存 | ✅ 开启 | `thumbcache_*.db` 安全可删 |
 | 回收站 | ✅ 开启 | `C:\$Recycle.Bin` |
 | **▸ 浏览器缓存** | | |
-| Chrome | ❌ 关闭 | `Chrome\User Data\Default\Cache` |
-| Edge | ❌ 关闭 | `Edge\User Data\Default\Cache` |
-| Firefox | ❌ 关闭 | `Mozilla\Firefox\Profiles\*\cache2` |
+| Chrome | ❌ 关闭 | 多用户配置下的 Cache / Code Cache / GPUCache / Service Worker 缓存 |
+| Edge | ❌ 关闭 | 多用户配置下的 Cache / Code Cache / GPUCache / Service Worker 缓存 |
+| Firefox | ❌ 关闭 | `Mozilla\Firefox\Profiles\*\cache2` + startupCache |
 | **▸ 应用缓存** | | |
 | 微信缓存 | ❌ 关闭 | 聊天图片/视频（可能超 10GB） |
-| VSCode 缓存 | ❌ 关闭 | Code\Cache + Code\CachedData |
+| VSCode 缓存 | ❌ 关闭 | Cache / CachedData / Code Cache / GPUCache / logs / CachedExtensionVSIXs |
 | NVIDIA 缓存 | ❌ 关闭 | Downloader + Installer2 目录 |
 | **▸ 开发缓存** | | |
 | pip | ❌ 关闭 | `pip cache purge` |
-| npm | ❌ 关闭 | `npm-cache` 目录 |
+| npm | ❌ 关闭 | Roaming / LocalAppData 下的 `npm-cache` 目录 |
 | conda | ❌ 关闭 | `conda clean --all -y` |
 | `__pycache__` | ❌ 关闭 | Python 字节码缓存 |
 | Docker | ❌ 关闭 | `docker system prune -a` |
 | **▸ 其他** | | |
 | 关闭休眠 | ❌ 关闭 | 删除 hiberfil.sys，释放数 GB |
 | 分析 C:\ 大目录 | ❌ 关闭 | 扫描 C 盘最大的 12 个目录（较慢） |
+| 修复 VPN/TUN 网络 | ❌ 关闭 | 修复 TUN 模式开启后无法访问网络的常见系统侧问题 |
 
-> 清理完成后，日志中会自动显示 **清理前后对比** 和释放的空间大小。
+> 清理过程中会按项目显示释放空间；清理完成后，日志中会自动显示 **清理前后对比** 和总释放空间。
+
+> 「安全全选」只会勾选常规缓存/临时文件清理项，不会自动勾选微信文件、Docker、关闭休眠、VPN/TUN 修复等高影响操作。
 
 ---
 
@@ -136,6 +141,7 @@ clean_safe_plus.bat
    - 3.1 关闭休眠 — 删除 hiberfil.sys
    - 3.2 系统服务与性能优化 — 禁用 Xbox 等非必需服务、关闭透明效果、禁用 OneDrive 自启
    - 3.3 网络优化 — 关闭后台网络服务(DoSvc/DiagTrack/推送)、刷新 DNS、重置协议、TCP 参数调优、网卡省电关闭、MTU 优化
+   - 3.4 VPN/TUN 网络修复 — 刷新 DNS、重置 Winsock/IP、重置 WinHTTP 代理、恢复活动网卡自动 metric
 6. **板块四：应用缓存清理（可选）** — 浏览器 / 微信 / VSCode / NVIDIA
 7. **板块五：开发工具缓存（可选）** — pip / npm / conda / \_\_pycache\_\_ / Docker
 8. **显示清理后空间** — 前后对比

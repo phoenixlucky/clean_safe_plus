@@ -19,19 +19,23 @@ compact_force_ratio = 0.9   # force compacting at this high-water mark
 # planner_model = "mimo"   # optional: enable two-model collaboration
 # subagent_model = "deepseek-pro"   # optional default for runAs=subagent skills
 # subagent_models = { review = "deepseek-pro", security_review = "deepseek-pro" }   # per-skill overrides
+# subagent_effort = "high"   # optional default effort for subagents
+# subagent_efforts = { review = "max", task = "high" }   # per-tool/skill effort overrides
 # output_style = "explanatory"   # explanatory | learning | concise | custom; empty = default
 
 [tools]
 enabled = []   # empty = all built-in tools
+bash_timeout_seconds = 120   # foreground safety cap; set 0 for no tool-local cap
 
 [codegraph]
 enabled      = true   # built-in MCP server; off by default for first-run sessions
 auto_install = true   # fetch the runtime when CodeGraph is enabled but missing
 # path       = ""   # empty = cache, then PATH, then a bundle beside reasonix
-# tier       = "lazy"   # lazy|background|eager
 
 [skills]
 # paths = ["~/my-skills", "../shared/skills"]   # extra custom skill roots
+# excluded_paths = ["~/.agents/skills"]   # hide convention roots without deleting folders
+# max_depth = 3   # nested scan depth; set 1 for legacy root-only discovery
 # disabled_skills = ["review"]   # hide noisy or unwanted skills
 
 [permissions]
@@ -40,7 +44,7 @@ auto_install = true   # fetch the runtime when CodeGraph is enabled but missing
 # Rules are "ToolName" or "ToolName(glob)"; '*' matches any run, '?' one char.
 mode  = "ask"
 # deny = ["bash(rm -rf*)", "bash(git push*)"]   # hard-blocked in every mode
-allow = ["edit_file=D:\\home\\clean_safe_plus\\clean_safe_plus.bat", "delete_range=D:\\home\\clean_safe_plus\\clean_safe_plus.bat", "explore", "multi_edit=D:\\home\\clean_safe_plus\\clean_safe_plus.bat", "delete_range=D:\\home\\clean_safe_plus\\clean_safe_gui.ps1", "edit_file=D:\\home\\clean_safe_plus\\clean_safe_gui.ps1", "edit_file=D:\\home\\clean_safe_plus\\reasonix.toml", "edit_file=D:\\home\\clean_safe_plus\\README.md", "bash=Write-Host \"=== 检查所有板块标题 ===\"; Select-String -Path \"D:\\home\\clean_safe_plus\\clean_safe_plus.bat\" -Pattern \"板块|分析 C|安全清理\" | ForEach-Object { \"$($_.LineNumber): $($_.Line.Trim())\" }", "bash=Write-Host \"=== 板块三子标题 ===\"; Select-String -Path \"D:\\home\\clean_safe_plus\\clean_safe_plus.bat\" -Pattern \"--- \\d+\\.\\d\" | ForEach-Object { \"  $($_.Line.Trim())\" }", "bash=Write-Host \"=== 板块三完整范围 ===\"; Select-String -Path \"D:\\home\\clean_safe_plus\\clean_safe_plus.bat\" -Pattern \"板块三|--- 3\\.|板块四\" | ForEach-Object { \"  $($_.Line.Trim())\" }", "bash=git remote -v", "bash=if (Test-Path \".gitignore\") { Get-Content \".gitignore\" } else { Write-Host \"NO_GITIGNORE\" }", "write_file=D:\\home\\clean_safe_plus\\.gitignore", "bash=git add -A"]
+allow = ["edit_file=D:\\home\\clean_safe_plus\\clean_safe_plus.bat", "delete_range=D:\\home\\clean_safe_plus\\clean_safe_plus.bat", "explore", "multi_edit=D:\\home\\clean_safe_plus\\clean_safe_plus.bat", "delete_range=D:\\home\\clean_safe_plus\\clean_safe_gui.ps1", "edit_file=D:\\home\\clean_safe_plus\\clean_safe_gui.ps1", "edit_file=D:\\home\\clean_safe_plus\\reasonix.toml", "edit_file=D:\\home\\clean_safe_plus\\README.md", "bash=Write-Host \"=== 检查所有板块标题 ===\"; Select-String -Path \"D:\\home\\clean_safe_plus\\clean_safe_plus.bat\" -Pattern \"板块|分析 C|安全清理\" | ForEach-Object { \"$($_.LineNumber): $($_.Line.Trim())\" }", "bash=Write-Host \"=== 板块三子标题 ===\"; Select-String -Path \"D:\\home\\clean_safe_plus\\clean_safe_plus.bat\" -Pattern \"--- \\d+\\.\\d\" | ForEach-Object { \"  $($_.Line.Trim())\" }", "bash=Write-Host \"=== 板块三完整范围 ===\"; Select-String -Path \"D:\\home\\clean_safe_plus\\clean_safe_plus.bat\" -Pattern \"板块三|--- 3\\.|板块四\" | ForEach-Object { \"  $($_.Line.Trim())\" }", "bash=git remote -v", "bash=if (Test-Path \".gitignore\") { Get-Content \".gitignore\" } else { Write-Host \"NO_GITIGNORE\" }", "write_file=D:\\home\\clean_safe_plus\\.gitignore", "bash=git add -A", "bash=git branch", "bash=git diff -- clean_safe_plus.bat | head -40", "bash=Get-Content clean_safe_plus.bat | Select-String \"^:?[a-zA-Z]\" | Select-Object -First 40", "bash=Get-Content clean_safe_gui.ps1 | Measure-Object -Line", "bash=Select-String -Path clean_safe_gui.ps1 -Pattern \"关闭休眠|分析C|Analyze|hibernate|扫描\" | Select-Object -First 10", "edit_file=.gitignore"]
 # ask = ["write_file"]   # force a prompt even if otherwise allowed
 
 [sandbox]

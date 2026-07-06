@@ -1,5 +1,6 @@
-# Reasonix 内部状态（Agent 会话记录）
+# Reasonix 内部状态（Agent 会话记录 + Code Intelligence 索引）
 .reasonix/
+.codegraph/
 
 # Windows 临时文件
 Thumbs.db
