@@ -415,7 +415,9 @@ $script:JobScriptBlock = {
 
         # ========== 11. 微信缓存 ==========
         if ($state.CleanWeChat) {
-            $wechatStoragePaths = [System.Collections.Generic.List[string]]::new()
+            $wechatCacheDirs = [System.Collections.Generic.List[string]]::new()
+
+            # —— 微信 3.x：默认位置 + 注册表自定义保存路径 ——
             $wechatRoots = @(
                 "$env:USERPROFILE\Documents\WeChat Files",
                 "$env:USERPROFILE\Documents\xwechat_files",
@@ -423,30 +425,72 @@ $script:JobScriptBlock = {
                 "$env:APPDATA\Tencent\WeChat Files",
                 "$env:LOCALAPPDATA\Tencent\WeChat Files"
             )
+            try {
+                $saved = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Tencent\WeChat' -Name FileSavePath -ErrorAction Stop).FileSavePath
+                if ($saved -and $saved -ne 'MyDocument:') {
+                    # FileSavePath 存的是上级目录（如 D:\wxdata），微信再拼 \WeChat Files；也可能直接是完整路径
+                    $wechatRoots += (Join-Path $saved 'WeChat Files')
+                    $wechatRoots += $saved
+                }
+            } catch { }
             foreach ($root in $wechatRoots) {
                 if (-not (Test-Path -LiteralPath $root)) { continue }
                 $direct = Join-Path $root 'FileStorage'
-                if (Test-Path -LiteralPath $direct) { $wechatStoragePaths.Add($direct) }
+                if (Test-Path -LiteralPath $direct) { [void]$wechatCacheDirs.Add($direct) }
                 Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | ForEach-Object {
                     $fs = Join-Path $_.FullName 'FileStorage'
-                    if (Test-Path -LiteralPath $fs) { $wechatStoragePaths.Add($fs) }
+                    if (Test-Path -LiteralPath $fs) { [void]$wechatCacheDirs.Add($fs) }
                 }
             }
+
+            # —— 微信 4.x：xwechat_files 新结构（<wxid>_*\msg\attach|file|image|video，无 FileStorage）——
+            $xwechatRoots = [System.Collections.Generic.List[string]]::new()
+            foreach ($r in @("$env:USERPROFILE\Documents", "$env:APPDATA\Tencent", "$env:LOCALAPPDATA\Tencent")) {
+                if (Test-Path -LiteralPath $r) { [void]$xwechatRoots.Add($r) }
+            }
+            $wxCfg = "$env:APPDATA\Tencent\xwechat\config"
+            if (Test-Path -LiteralPath $wxCfg) {
+                # 微信 4.x 在 config\*.ini 里记录文件保存根目录（内容即根目录，数据在 <root>\xwechat_files）
+                Get-ChildItem -LiteralPath $wxCfg -Filter *.ini -ErrorAction SilentlyContinue | ForEach-Object {
+                    try {
+                        $c = Get-Content -LiteralPath $_.FullName -Raw -ErrorAction Stop
+                        if ($c) {
+                            $r = $c.Trim()
+                            if ($r -and (Test-Path -LiteralPath $r)) { [void]$xwechatRoots.Add($r) }
+                        }
+                    } catch { }
+                }
+            }
+            foreach ($root in ($xwechatRoots | Select-Object -Unique)) {
+                $xr = Join-Path $root 'xwechat_files'
+                if (-not (Test-Path -LiteralPath $xr)) { $xr = $root }
+                Get-ChildItem -LiteralPath $xr -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match '^wxid_' } | ForEach-Object {
+                        $msg = Join-Path $_.FullName 'msg'
+                        foreach ($sub in @('attach', 'file', 'image', 'video')) {
+                            $d = Join-Path $msg $sub
+                            if (Test-Path -LiteralPath $d) { [void]$wechatCacheDirs.Add($d) }
+                        }
+                    }
+            }
+
+            # —— 兜底：递归搜索 FileStorage（覆盖非常规位置）——
             foreach ($root in @("$env:USERPROFILE\Documents", "$env:APPDATA\Tencent", "$env:LOCALAPPDATA\Tencent")) {
                 if (-not (Test-Path -LiteralPath $root)) { continue }
                 Get-ChildItem -LiteralPath $root -Directory -Filter FileStorage -Recurse -Depth 5 -ErrorAction SilentlyContinue |
                     Where-Object { $_.FullName -match '(?i)(WeChat Files|xwechat_files|Weixin)' } |
-                    ForEach-Object { $wechatStoragePaths.Add($_.FullName) }
+                    ForEach-Object { [void]$wechatCacheDirs.Add($_.FullName) }
             }
-            $wechatStoragePaths = $wechatStoragePaths | Select-Object -Unique
-            if ($wechatStoragePaths.Count -gt 0) {
-                foreach ($fs in $wechatStoragePaths) {
-                    Invoke-DirCleanup -Path $fs -Name "微信缓存" -SuccessMessage "  OK 微信缓存: $fs" -NotFoundMessage ""
+
+            $wechatCacheDirs = $wechatCacheDirs | Select-Object -Unique
+            if ($wechatCacheDirs.Count -gt 0) {
+                foreach ($d in $wechatCacheDirs) {
+                    Invoke-DirCleanup -Path $d -Name "微信缓存" -SuccessMessage "  OK 微信缓存: $d" -NotFoundMessage ""
                 }
             } else {
                 Write-LogBg '  - 未找到微信缓存；可在微信 设置 > 文件管理 中查看保存位置' 'Gray' $false
             }
-            Set-ProgressBg 37 '微信缓存 OK'
+            Set-ProgressBg 37 '微信缓存 OK' 
         }
 
         # ========== 12. VSCode 缓存 ==========

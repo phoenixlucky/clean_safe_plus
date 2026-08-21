@@ -54,26 +54,68 @@ if not exist "%CLEAN_PATH%" (
     goto :eof
 )
 echo   正在清理：%CLEAN_NAME%
-del /s /f /q "%CLEAN_PATH%\*" >nul 2>&1
-for /d %%i in ("%CLEAN_PATH%\*") do rd /s /q "%%i" >nul 2>&1
-echo   已清理：%CLEAN_NAME%
+rem Use PowerShell so hidden/system items are included and failures can be counted.
+set "CLEAN_RESULT="
+for /f "tokens=1-3" %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:CLEAN_PATH; if(-not (Test-Path -LiteralPath $p -PathType Container)){Write-Output '0 0 0'; exit}; $items=@(Get-ChildItem -LiteralPath $p -Force -ErrorAction SilentlyContinue); $before=(Get-ChildItem -LiteralPath $p -Force -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum; if($null -eq $before){$before=0}; $failed=0; foreach($item in $items){try{Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop}catch{$failed++}}; $after=(Get-ChildItem -LiteralPath $p -Force -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum; if($null -eq $after){$after=0}; $freed=[math]::Max(0,[double]$before-[double]$after); Write-Output ('{0} {1} {2}' -f $freed,$failed,$items.Count)" 2^>nul') do set "CLEAN_RESULT=%%A %%B %%C"
+if not defined CLEAN_RESULT set "CLEAN_RESULT=0 1 0"
+echo   已处理：%CLEAN_NAME%
+call :showcleanresult
+goto :eof
+
+:showcleanresult
+set "CLEAN_FREED_BYTES=0"
+set "CLEAN_FAILED=0"
+set "CLEAN_ITEMS=0"
+for /f "tokens=1-3" %%A in ("!CLEAN_RESULT!") do (
+    set "CLEAN_FREED_BYTES=%%A"
+    set "CLEAN_FAILED=%%B"
+    set "CLEAN_ITEMS=%%C"
+)
+set "CLEAN_FREED_MB=0"
+for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "[math]::Round([double]'!CLEAN_FREED_BYTES!'/1MB,2)"`) do set "CLEAN_FREED_MB=%%A"
+echo   Result: !CLEAN_ITEMS! items, !CLEAN_FREED_MB! MB freed, !CLEAN_FAILED! failed
+if not "!CLEAN_FAILED!"=="0" echo   Warning: locked or protected items were skipped.
+set "CLEAN_RESULT="
 goto :eof
 
 :cleanfiles
 set "FILE_PATTERN=%~1"
 set "FILE_NAME=%~2"
-del /s /f /q "%FILE_PATTERN%" >nul 2>&1
-echo   已清理：%FILE_NAME%
+set "CLEAN_RESULT="
+for /f "tokens=1-3" %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$pattern=$env:FILE_PATTERN; $root=[IO.Path]::GetDirectoryName($pattern); $leaf=[IO.Path]::GetFileName($pattern); if(-not (Test-Path -LiteralPath $root -PathType Container)){Write-Output '0 0 0'; exit}; $items=@(Get-ChildItem -LiteralPath $root -Filter $leaf -File -Force -Recurse -ErrorAction SilentlyContinue); $before=($items | Measure-Object -Property Length -Sum).Sum; if($null -eq $before){$before=0}; $failed=0; foreach($item in $items){try{Remove-Item -LiteralPath $item.FullName -Force -ErrorAction Stop}catch{$failed++}}; $after=(Get-ChildItem -LiteralPath $root -Filter $leaf -File -Force -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum; if($null -eq $after){$after=0}; $freed=[math]::Max(0,[double]$before-[double]$after); Write-Output ('{0} {1} {2}' -f $freed,$failed,$items.Count)" 2^>nul') do set "CLEAN_RESULT=%%A %%B %%C"
+if not defined CLEAN_RESULT set "CLEAN_RESULT=0 1 0"
+echo   已处理：%FILE_NAME%
+call :showcleanresult
 goto :eof
 
 :service_stop
 sc query "%~1" >nul 2>&1
-if not errorlevel 1 sc stop "%~1" >nul 2>&1
+if errorlevel 1 goto :eof
+sc stop "%~1" >nul 2>&1
+for /l %%N in (1,1,20) do (
+    for /f "tokens=3" %%S in ('sc query "%~1" ^| findstr /i "STATE"') do if "%%S"=="1" goto :eof
+    timeout /t 1 /nobreak >nul
+)
+goto :eof
+
+:closeprocess
+set "PROC_NAME=%~1"
+tasklist /fi "IMAGENAME eq %PROC_NAME%" /fo csv /nh | find /i "%PROC_NAME%" >nul 2>&1
+if errorlevel 1 goto :eof
+echo   %PROC_NAME% is running and may lock cache files.
+set "PROC_CHOICE="
+set /p "PROC_CHOICE=Close %PROC_NAME% now? (Y/N): "
+if /i "!PROC_CHOICE!"=="Y" taskkill /f /im "%PROC_NAME%" >nul 2>&1
 goto :eof
 
 :service_start
 sc query "%~1" >nul 2>&1
-if not errorlevel 1 sc start "%~1" >nul 2>&1
+if errorlevel 1 goto :eof
+sc start "%~1" >nul 2>&1
+for /l %%N in (1,1,20) do (
+    for /f "tokens=3" %%S in ('sc query "%~1" ^| findstr /i "STATE"') do if "%%S"=="4" goto :eof
+    timeout /t 1 /nobreak >nul
+)
 goto :eof
 
 :fixvpntun
@@ -122,8 +164,9 @@ echo [3/8] 清理 Prefetch（自动重建，安全）...
 call :cleandir "%SystemRoot%\Prefetch" "Prefetch"
 
 echo [4/8] 清理日志文件（Windows Logs + WER）...
-call :cleandir "%SystemRoot%\Logs" "Windows Logs"
-call :cleandir "%ProgramData%\Microsoft\Windows\WER" "WER 错误报告"
+    call :cleandir "%SystemRoot%\Logs" "Windows Logs"
+    call :cleandir "%ProgramData%\Microsoft\Windows\WER" "WER 错误报告"
+    call :cleandir "%LOCALAPPDATA%\Microsoft\Windows\WER" "用户 WER 错误报告"
 
 echo [5/8] 清理缩略图缓存...
 call :cleanfiles "%LOCALAPPDATA%\Microsoft\Windows\Explorer\thumbcache_*.db" "缩略图缓存"
@@ -131,15 +174,23 @@ call :cleanfiles "%LOCALAPPDATA%\Microsoft\Windows\Explorer\thumbcache_*.db" "缩
 echo [6/8] 清理 Windows 更新下载缓存...
 call :service_stop wuauserv
 call :service_stop bits
+call :service_stop DoSvc
 call :cleandir "%SystemRoot%\SoftwareDistribution\Download" "Windows 更新下载缓存"
+call :cleandir "%SystemRoot%\ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache" "Delivery Optimization 缓存"
+call :cleandir "%LOCALAPPDATA%\D3DSCache" "DirectX Shader 缓存"
+call :cleandir "%LOCALAPPDATA%\NVIDIA\DXCache" "NVIDIA DX 缓存"
+call :cleandir "%LOCALAPPDATA%\NVIDIA\GLCache" "NVIDIA GL 缓存"
+call :cleandir "%LOCALAPPDATA%\AMD\DxCache" "AMD DX 缓存"
+call :cleandir "%LOCALAPPDATA%\AMD\GLCache" "AMD GL 缓存"
 call :service_start wuauserv
 call :service_start bits
+call :service_start DoSvc
 
 echo [7/8] 清理 Windows 临时目录...
 call :cleandir "%SystemRoot%\Temp" "Windows Temp"
 
 echo [8/8] 清理回收站...
-rd /s /q "C:\$Recycle.Bin" >nul 2>&1
+call :cleandir "C:\$Recycle.Bin" "回收站"
 echo   已清理回收站
 
 echo 安全清理完成。
@@ -262,6 +313,9 @@ echo.
 echo --- 3.1 浏览器缓存 ---
 set /p brchoice=是否清理浏览器缓存（Chrome/Edge/Firefox）？^(Y/N^):
 if /i "!brchoice!"=="Y" (
+    call :closeprocess chrome.exe
+    call :closeprocess msedge.exe
+    call :closeprocess firefox.exe
     if exist "%LOCALAPPDATA%\Google\Chrome\User Data" (
         for /d %%p in ("%LOCALAPPDATA%\Google\Chrome\User Data\*") do (
             call :cleandir "%%p\Cache" "Chrome %%~nxp Cache"
@@ -304,7 +358,10 @@ echo --- 3.2 微信缓存 ---
 set /p wxchoice=是否清理微信缓存（聊天图片/视频，可能超 10GB）？^(Y/N^):
 if /i "!wxchoice!"=="Y" (
     set "WX_FOUND=0"
-    for %%R in ("%USERPROFILE%\Documents\WeChat Files" "%USERPROFILE%\Documents\xwechat_files" "%USERPROFILE%\WeChat Files" "%APPDATA%\Tencent\WeChat Files" "%LOCALAPPDATA%\Tencent\WeChat Files") do (
+    call :closeprocess WeChat.exe
+    call :closeprocess Weixin.exe
+    rem ---- 微信 3.x：默认位置 + 注册表自定义保存路径（FileSavePath 存上级目录）----
+    for %%R in ("%USERPROFILE%\Documents\WeChat Files" "%USERPROFILE%\Documents\Weixin Files" "%USERPROFILE%\Documents\xwechat_files" "%USERPROFILE%\WeChat Files" "%APPDATA%\Tencent\WeChat Files" "%APPDATA%\Tencent\Weixin Files" "%LOCALAPPDATA%\Tencent\WeChat Files" "%LOCALAPPDATA%\Tencent\Weixin Files") do (
         if exist "%%~R" (
             if exist "%%~R\FileStorage" (
                 set "WX_FOUND=1"
@@ -318,7 +375,31 @@ if /i "!wxchoice!"=="Y" (
             )
         )
     )
-    for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$roots=@($env:USERPROFILE + '\Documents', $env:APPDATA + '\Tencent', $env:LOCALAPPDATA + '\Tencent'); foreach($root in $roots){ if(Test-Path -LiteralPath $root){ foreach($d in Get-ChildItem -LiteralPath $root -Directory -Filter FileStorage -Recurse -Depth 5 -ErrorAction SilentlyContinue){ if($d.FullName -match '(?i)(WeChat Files|xwechat_files|Weixin)'){ Write-Output $d.FullName } } } }"`) do (
+    for /f "usebackq delims=" %%S in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$v=$null; try{$v=(Get-ItemProperty -Path 'HKCU:\Software\Tencent\WeChat' -ErrorAction Stop).FileSavePath}catch{}; if($v -and $v -notmatch '^MyDocument:$'){ Write-Output $v }"`) do (
+        for %%T in ("%%S" "%%S\WeChat Files" "%%S\Weixin Files" "%%S\xwechat_files") do (
+            if exist "%%~T" (
+                if exist "%%~T\FileStorage" (
+                    set "WX_FOUND=1"
+                    call :cleandir "%%~T\FileStorage" "微信缓存（注册表自定义路径）"
+                )
+                for /d %%i in ("%%~T\*") do (
+                    if exist "%%i\FileStorage" (
+                        set "WX_FOUND=1"
+                        call :cleandir "%%i\FileStorage" "微信缓存：%%~nxi"
+                    )
+                )
+            )
+        )
+    )
+    rem ---- 微信 4.x：xwechat_files 新结构（msg\attach|file|image|video，无 FileStorage）----
+    for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$dirs=@(); $roots=@($env:USERPROFILE+'\Documents',$env:USERPROFILE+'\Documents\WeChat Files',$env:USERPROFILE+'\Documents\Weixin Files',$env:USERPROFILE+'\Documents\xwechat_files',$env:APPDATA+'\Tencent',$env:LOCALAPPDATA+'\Tencent'); try{$v=(Get-ItemProperty -Path 'HKCU:\Software\Tencent\WeChat' -ErrorAction Stop).FileSavePath; if($v -and $v -notmatch '^MyDocument:$'){$roots += @($v,(Join-Path $v 'WeChat Files'),(Join-Path $v 'Weixin Files'),(Join-Path $v 'xwechat_files'))}}catch{}; foreach($root in ($roots | Select-Object -Unique)){ if(-not (Test-Path -LiteralPath $root)){ continue }; Get-ChildItem -LiteralPath $root -Directory -Recurse -Depth 6 -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq 'msg' -and $_.FullName -match '(?i)(WeChat Files|Weixin Files|xwechat_files)' } | ForEach-Object { foreach($s in @('attach','file','image','video')){ $d=Join-Path $_.FullName $s; if(Test-Path -LiteralPath $d){ $dirs += $d } } } }; $dirs | Select-Object -Unique"`) do (
+        if exist "%%i" (
+            set "WX_FOUND=1"
+            call :cleandir "%%i" "微信缓存：%%i"
+        )
+    )
+    rem ---- 兜底：递归搜索 FileStorage（覆盖非常规位置）----
+    for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$r1=$env:USERPROFILE+'\Documents'; $r2=$env:APPDATA+'\Tencent'; $r3=$env:LOCALAPPDATA+'\Tencent'; $roots=@($r1,$r2,$r3); foreach($root in $roots){ if(Test-Path -LiteralPath $root){ foreach($d in Get-ChildItem -LiteralPath $root -Directory -Filter FileStorage -Recurse -Depth 5 -ErrorAction SilentlyContinue){ if($d.FullName -match '(?i)(WeChat Files|xwechat_files|Weixin)'){ Write-Output $d.FullName } } } }"`) do (
         if exist "%%i" (
             set "WX_FOUND=1"
             call :cleandir "%%i" "微信缓存：%%i"
@@ -327,6 +408,42 @@ if /i "!wxchoice!"=="Y" (
     if "!WX_FOUND!"=="0" (
         echo 未找到微信缓存目录。
         echo 可在微信 设置 ^> 文件管理 中查看保存位置后手动清理。
+        set /p wxmanual=或直接输入微信缓存目录路径（回车跳过）:
+        if not "!wxmanual!"=="" (
+            if exist "!wxmanual!" (
+                if exist "!wxmanual!\FileStorage" (
+                    set "WX_FOUND=1"
+                    call :cleandir "!wxmanual!\FileStorage" "微信缓存（手动输入）"
+                )
+                for /d %%m in ("!wxmanual!\msg") do (
+                    for %%s in (attach file image video) do (
+                        if exist "%%m\%%s" (
+                            set "WX_FOUND=1"
+                            call :cleandir "%%m\%%s" "微信缓存（手动输入）%%s"
+                        )
+                    )
+                )
+                for /d %%a in ("!wxmanual!\*") do (
+                    if exist "%%a\FileStorage" (
+                        set "WX_FOUND=1"
+                        call :cleandir "%%a\FileStorage" "微信缓存（手动输入）%%~nxa"
+                    )
+                    if exist "%%a\msg" (
+                        for %%s in (attach file image video) do (
+                            if exist "%%a\msg\%%s" (
+                                set "WX_FOUND=1"
+                                call :cleandir "%%a\msg\%%s" "微信缓存（手动输入）%%s"
+                            )
+                        )
+                    )
+                )
+                if "!WX_FOUND!"=="0" (
+                    echo   未能识别该目录，已跳过。
+                )
+            ) else (
+                echo   路径不存在，已跳过。
+            )
+        )
     )
 ) else (
     echo 跳过微信缓存清理。
