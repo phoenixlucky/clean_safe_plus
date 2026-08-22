@@ -10,10 +10,10 @@
 ### 修复
 - 微信缓存清理「未找到缓存目录」：新增读取微信 3.x 注册表自定义保存路径（`HKCU\Software\Tencent\WeChat\FileSavePath`），并支持微信 4.x 新目录结构（`xwechat_files\<wxid>_*\msg\attach|file|image|video`，无 `FileStorage`）；命令行版找不到缓存时可直接输入缓存目录路径
 
+### 移除
+- 移除图形界面版（`clean_safe_gui.ps1`、`launch_gui.bat`），只保留命令行版 `clean_safe_plus.bat`
+
 ### 计划
-- GUI：抽取重复的清理逻辑为 `Invoke-CleanupDirectory` 函数
-- GUI：补齐 `Get-DiskInfo` 空值保护
-- GUI：增加"刷新磁盘"按钮，避免依赖轮询
 - bat：抽取重复的 `del + rd` 清理模式为子程序
 - bat：补充休眠恢复说明（`powercfg /h on`）
 - README：补充排错小节与版本号

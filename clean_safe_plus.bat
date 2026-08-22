@@ -545,10 +545,11 @@ if not errorlevel 1 (
 )
 
 echo.
-echo --- 4.4 __pycache__（Python 字节码缓存） ---
-set /p pycchoice=是否清理所有 __pycache__ 目录？^(Y/N^):
+echo --- 4.4 __pycache__（当前用户目录内的 Python 字节码缓存） ---
+set /p pycchoice=是否清理当前用户目录内的 __pycache__ 目录？^(Y/N^):
 if /i "!pycchoice!"=="Y" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$count=0; Get-ChildItem C:\ -Directory -Name __pycache__ -Recurse -ErrorAction SilentlyContinue -Depth 4 | ForEach-Object { Remove-Item (Join-Path 'C:\' $_) -Recurse -Force -ErrorAction SilentlyContinue; $count++ }; Write-Host ('  清理了 ' + $count + ' 个 __pycache__ 目录')"
+    echo 仅扫描当前用户目录：%USERPROFILE% 和 %LOCALAPPDATA%，不会递归扫描整个 C 盘。
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$roots=@($env:USERPROFILE,$env:LOCALAPPDATA) | Where-Object {$_ -and (Test-Path -LiteralPath $_)} | Select-Object -Unique; $dirs=@(); foreach($root in $roots){ $dirs += Get-ChildItem -LiteralPath $root -Directory -Filter __pycache__ -Recurse -Force -ErrorAction SilentlyContinue }; $count=0; foreach($dir in $dirs){ try { Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction Stop; $count++ } catch { Write-Host ('  跳过：' + $dir.FullName) } }; Write-Host ('  清理了 ' + $count + ' 个 __pycache__ 目录')"
     echo __pycache__ 已清理。
 ) else (
     echo 跳过 __pycache__ 清理。
@@ -584,11 +585,11 @@ echo.
 
 set /p analyzechoice=是否现在分析 C 盘大目录？^(Y/N^):
 if /i "!analyzechoice!"=="Y" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $targets=@('C:\Users\Administrator\AppData','C:\ProgramData','C:\Windows','C:\System Volume Information'); Write-Host '[重点目录]'; foreach($p in $targets){ $sum=0; try { $sum=(Get-ChildItem -LiteralPath $p -Recurse -Force -File -ErrorAction SilentlyContinue 2>$null | Measure-Object Length -Sum).Sum } catch { $sum=0 }; if($null -eq $sum){$sum=0}; [PSCustomObject]@{Name=$p; GB=[math]::Round($sum/1GB,2)} } | Format-Table -AutoSize; Write-Host ''; Write-Host '[C:\ 根目录 Top 12]'; Get-ChildItem C:\ -Force -ErrorAction SilentlyContinue | ForEach-Object { $sum=0; try { $sum=(Get-ChildItem -LiteralPath $_.FullName -Recurse -Force -File -ErrorAction SilentlyContinue 2>$null | Measure-Object Length -Sum).Sum } catch { $sum=0 }; if ($null -eq $sum) { $sum=0 }; [PSCustomObject]@{Name=$_.FullName; GB=[math]::Round($sum/1GB,2)} } | Sort-Object GB -Descending | Select-Object -First 12 | Format-Table -AutoSize"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $targets=@((Join-Path $env:USERPROFILE 'AppData'), 'C:\ProgramData','C:\Windows','C:\System Volume Information') | Where-Object { Test-Path -LiteralPath $_ }; Write-Host '[重点目录]'; foreach($p in $targets){ $sum=0; try { $sum=(Get-ChildItem -LiteralPath $p -Recurse -Force -File -ErrorAction SilentlyContinue 2>$null | Measure-Object Length -Sum).Sum } catch { $sum=0 }; if($null -eq $sum){$sum=0}; [PSCustomObject]@{Name=$p; GB=[math]::Round($sum/1GB,2)} } | Format-Table -AutoSize; Write-Host ''; Write-Host '[C:\ 根目录 Top 12]'; Get-ChildItem C:\ -Force -ErrorAction SilentlyContinue | ForEach-Object { $sum=0; try { $sum=(Get-ChildItem -LiteralPath $_.FullName -Recurse -Force -File -ErrorAction SilentlyContinue 2>$null | Measure-Object Length -Sum).Sum } catch { $sum=0 }; if ($null -eq $sum) { $sum=0 }; [PSCustomObject]@{Name=$_.FullName; GB=[math]::Round($sum/1GB,2)} } | Sort-Object GB -Descending | Select-Object -First 12 | Format-Table -AutoSize"
 
     echo.
     echo [如果 C 盘仍然很满，请重点检查]
-    echo - C:\Users\Administrator\AppData：浏览器、微信/QQ、开发工具缓存；不要删除整个 AppData。
+    echo - %USERPROFILE%\AppData：浏览器、微信/QQ、开发工具缓存；不要删除整个 AppData。
     echo - C:\ProgramData：NVIDIA、Docker、安装包、公共缓存；只清理确认是缓存的子目录。
     echo - C:\Windows：优先用系统组件清理，不要手动删除 WinSxS、Installer、System32。
     echo - System Volume Information：通常是系统还原点/卷影副本占用。
@@ -628,7 +629,7 @@ echo 清理后剩余：!FREE_AFTER! GB
 echo 本次释放：  !FREE_DELTA! GB
 echo.
 echo 如果 C 盘仍然很满，请重点检查：
-echo   C:\Users\Administrator\AppData
+echo   %USERPROFILE%\AppData
 echo   C:\ProgramData
 echo   C:\Windows
 echo   System Volume Information
