@@ -1,0 +1,2 @@
+# 批处理脚本按 CRLF 检出/规范化，避免 Windows 编辑器与 git 的换行冲突
+*.bat text eol=crlf
