@@ -130,6 +130,69 @@ call :service_start iphlpsvc
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' } | ForEach-Object { Get-NetIPInterface -InterfaceIndex $_.InterfaceIndex -ErrorAction SilentlyContinue | Set-NetIPInterface -AutomaticMetric Enabled -ErrorAction SilentlyContinue }" >nul 2>&1
 goto :eof
 
+:pagefile
+echo.
+echo --- 2.5 设置虚拟内存（页面文件）---
+echo 说明：虚拟内存过大浪费磁盘，过小会导致程序报"内存不足"。
+echo 常见做法：初始值=物理内存大小，最大值=物理内存的 1.5~2 倍；或使用"系统管理的大小"。
+echo 注意：修改后需要重启电脑才能完全生效。
+echo.
+echo [当前虚拟内存配置]
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$cs=Get-CimInstance Win32_ComputerSystem; if($cs.AutomaticManagedPagefile){Write-Host '  [系统] 自动管理所有驱动器的分页文件大小'}else{$pfs=@(Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue); if($pfs.Count -eq 0){Write-Host '  [无] 未设置分页文件（无虚拟内存）'}else{foreach($p in $pfs){Write-Host ('  [手动] '+$p.Name+' 初始='+$p.InitialSize+'MB 最大='+$p.MaximumSize+'MB')}}}"
+echo.
+echo   [1] 系统自动管理（推荐）
+echo   [2] 自定义大小（选择盘符）
+echo   [3] 无分页文件（不推荐，可能崩溃）
+echo   [0] 跳过
+echo.
+set /p pfchoice=请选择 (0-3):
+if "!pfchoice!"=="0" goto :pagefile_done_skip
+if "!pfchoice!"=="1" goto :pagefile_auto
+if "!pfchoice!"=="2" goto :pagefile_custom
+if "!pfchoice!"=="3" goto :pagefile_none
+echo 输入无效，已跳过。
+goto :eof
+
+:pagefile_auto
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$cs=Get-CimInstance Win32_ComputerSystem; Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile=$true}"
+if not errorlevel 1 (echo 已设为系统自动管理，重启后生效。) else (echo 设置失败，请确认以管理员身份运行。)
+goto :eof
+
+:pagefile_custom
+echo.
+echo [可选的本地磁盘]
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | Select-Object @{N='盘符';E={$_.DeviceID}},@{N='总容量GB';E={[math]::Round($_.Size/1GB,1)}},@{N='剩余GB';E={[math]::Round($_.FreeSpace/1GB,1)}} | Format-Table -AutoSize"
+set "pfdisk="
+set /p pfdisk=请输入要设置的盘符（如 D，回车=跳过）:
+if not defined pfdisk goto :pagefile_empty
+set "pfinit="
+set "pfmax="
+set /p pfinit=请输入初始大小（MB，建议=物理内存大小，例如 8192）:
+set /p pfmax=请输入最大值（MB，建议=内存的 1.5~2 倍，例如 16384）:
+if not defined pfinit goto :pagefile_empty
+if not defined pfmax goto :pagefile_empty
+set "PFDISK=!pfdisk!"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$disk=$env:PFDISK.Trim().TrimEnd('\').TrimEnd(':'); if($disk -notmatch '^[a-zA-Z]$'){Write-Host '盘符无效，已跳过。'; exit 1}; $letter=$disk.ToUpper(); $deviceId=$letter+':'; if(-not (Get-CimInstance Win32_LogicalDisk -Filter ('DeviceID='''+$deviceId+''' AND DriveType=3') -ErrorAction SilentlyContinue)){Write-Host ('盘符不存在或不是本地磁盘：'+$deviceId+'，已跳过。'); exit 1}; $init=[int]$env:PFINIT; $max=[int]$env:PFMAX; if($max -lt $init){Write-Host '最大值不能小于初始值，已跳过。'; exit 1}; if($init -lt 0 -or $max -lt 0){Write-Host '大小不能为负数，已跳过。'; exit 1}; try{$cs=Get-CimInstance Win32_ComputerSystem; Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile=$false} -ErrorAction Stop; $ui=[uint32]$init; $um=[uint32]$max; $pf=Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue | Where-Object { $_.Name -imatch ('^'+[regex]::Escape($letter+':')) } | Select-Object -First 1; if($pf){Set-CimInstance -InputObject $pf -Property @{InitialSize=$ui; MaximumSize=$um} -ErrorAction Stop}else{New-CimInstance -ClassName Win32_PageFileSetting -Property @{Name=($letter+':\pagefile.sys'); InitialSize=$ui; MaximumSize=$um} -ErrorAction Stop | Out-Null}; Write-Host ('已设置 '+$letter+':\pagefile.sys 自定义虚拟内存：初始 '+$init+' MB，最大 '+$max+' MB，重启后生效。')}catch{Write-Host ('设置失败：'+$_.Exception.Message); exit 1}"
+if errorlevel 1 goto :pagefile_fail
+goto :eof
+
+:pagefile_fail
+echo 设置失败，请检查输入或管理员权限。
+goto :eof
+
+:pagefile_none
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$cs=Get-CimInstance Win32_ComputerSystem; Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile=$false}; Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue | Remove-CimInstance"
+if not errorlevel 1 (echo 已移除分页文件，重启后生效。警告：物理内存不足时程序可能崩溃。) else (echo 设置失败，请确认以管理员身份运行。)
+goto :eof
+
+:pagefile_empty
+echo 输入为空，已跳过虚拟内存设置。
+goto :eof
+
+:pagefile_done_skip
+echo 跳过虚拟内存设置。
+goto :eof
+
 :main
 call :getfreegb FREE_BEFORE
 
@@ -142,18 +205,55 @@ echo [当前C盘空间]
 call :diskinfo
 echo.
 
-set /p gochoice=是否继续执行安全清理？^(Y/N^):
-if /i not "!gochoice!"=="Y" (
-    echo 已取消清理。
-    pause
-    exit /b
-)
+:main_menu
+echo ==================================================
+echo    请选择功能分类
+echo ==================================================
+echo.
+echo   [1] 清理类（安全清理/应用缓存/开发工具缓存）
+echo   [2] 设置类（休眠/服务/网络/VPN-TUN/虚拟内存）
+echo   [3] 分析类（C盘大目录/DISM/卷影副本）
+echo.
+echo   [0] 退出并显示结果
+echo.
+set /p mmchoice=请选择 (0-3):
+if "!mmchoice!"=="1" goto :menu_clean
+if "!mmchoice!"=="2" goto :menu_set
+if "!mmchoice!"=="3" goto :menu_analyze
+if "!mmchoice!"=="0" goto :finish
+echo 输入无效，请重新选择。
+goto :main_menu
 
+:menu_clean
 echo.
 echo ==================================================
-echo 板块一、执行安全清理（自动执行）
+echo     [清理类] 请选择要清理的项目
 echo ==================================================
+echo.
+echo   [1] 安全清理（临时文件/日志/缩略图/更新缓存/回收站）
+echo   [2] 浏览器缓存（Chrome/Edge/Firefox）
+echo   [3] 微信缓存（聊天图片/视频，可能超 10GB）
+echo   [4] VSCode 缓存
+echo   [5] NVIDIA 缓存
+echo   [6] 开发工具缓存（pip/npm/conda/__pycache__/Docker）
+echo.
+echo   [0] 返回上级菜单
+echo.
+set /p cmlchoice=请选择 (0-6):
+if "!cmlchoice!"=="1" goto :clean_safe
+if "!cmlchoice!"=="2" goto :clean_browser
+if "!cmlchoice!"=="3" goto :clean_wechat
+if "!cmlchoice!"=="4" goto :clean_vscode
+if "!cmlchoice!"=="5" goto :clean_nvidia
+if "!cmlchoice!"=="6" goto :clean_dev
+if "!cmlchoice!"=="0" goto :main_menu
+echo 输入无效，请重新选择。
+goto :menu_clean
 
+:clean_safe
+echo.
+echo ===== 安全清理（自动执行） =====
+echo.
 echo [1/8] 清理用户临时文件...
 call :cleandir "%TEMP%" "用户 Temp"
 
@@ -195,124 +295,12 @@ echo   已清理回收站
 
 echo 安全清理完成。
 echo.
+goto :menu_clean
 
-echo ==================================================
-echo 板块二、系统优化
-echo ==================================================
+:clean_browser
 echo.
-
-echo --- 2.1 关闭休眠 ---
-echo 说明：关闭休眠会删除 hiberfil.sys，通常释放数 GB 到几十 GB。
-echo 影响：不能使用“休眠”功能，普通关机和睡眠通常不受影响。
+echo ===== 清理浏览器缓存（Chrome/Edge/Firefox） =====
 echo.
-set /p hchoice=是否关闭休眠？^(Y/N^):
-if /i "!hchoice!"=="Y" (
-    powercfg -h off
-    echo 已关闭休眠。
-) else (
-    echo 跳过休眠。
-)
-
-echo.
-echo --- 2.2 系统服务与性能优化 ---
-echo 说明：停止 Xbox 等非必要后台服务、关闭窗口透明效果、禁用 OneDrive 自启动。
-echo.
-set /p sysoptchoice=是否执行系统服务与性能优化？^(Y/N^):
-if /i "!sysoptchoice!"=="Y" (
-    echo 停止非必要服务...
-    call :service_stop SysMain
-    sc config SysMain start= disabled >nul 2>&1
-    call :service_stop WSearch
-    sc config WSearch start= manual >nul 2>&1
-    call :service_stop XblAuthManager
-    sc config XblAuthManager start= disabled >nul 2>&1
-    call :service_stop XblGameSave
-    sc config XblGameSave start= disabled >nul 2>&1
-    call :service_stop XboxNetApiSvc
-    sc config XboxNetApiSvc start= disabled >nul 2>&1
-
-    echo 优化视觉效果...
-    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f >nul 2>&1
-    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f >nul 2>&1
-
-    echo 禁用 OneDrive 自启动...
-    reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v OneDrive /f >nul 2>&1
-
-    echo 系统服务与性能优化完成。
-    echo 建议重启电脑以应用所有设置。
-) else (
-    echo 跳过系统服务与性能优化。
-)
-
-echo.
-echo --- 2.3 网络优化 ---
-echo 说明：关闭后台网络服务、DNS 刷新、协议重置、TCP 参数调优、网卡省电关闭、MTU 优化。
-echo 注意：执行中网络会短暂断开，刷新后会恢复。
-echo.
-set /p netchoice=是否执行网络优化？^(Y/N^):
-if /i "!netchoice!"=="Y" (
-    echo [1/6] 关闭后台网络服务...
-    call :service_stop DoSvc
-    sc config DoSvc start= disabled >nul 2>&1
-    call :service_stop DiagTrack
-    sc config DiagTrack start= disabled >nul 2>&1
-    call :service_stop dmwappushservice
-    sc config dmwappushservice start= disabled >nul 2>&1
-
-    echo [2/6] 刷新 DNS 缓存...
-    ipconfig /flushdns >nul 2>&1
-
-    echo [3/6] 重置网络协议...
-    netsh winsock reset >nul 2>&1
-    netsh int ip reset >nul 2>&1
-    ipconfig /release >nul 2>&1
-    ipconfig /renew >nul 2>&1
-    netsh interface ip delete arpcache >nul 2>&1
-
-    echo [4/6] TCP/IP 性能参数优化...
-    netsh interface tcp set global autotuninglevel=normal >nul 2>&1
-    netsh interface tcp set global rss=enabled >nul 2>&1
-    netsh interface tcp set global ecncapability=enabled >nul 2>&1
-
-    echo [5/6] Wi-Fi 与网卡省电优化...
-    powercfg -setacvalueindex scheme_current sub_wireless 19cbb8fa-5279-450e-9fac-8a3d5fedd0c1 0 >nul 2>&1
-    powercfg -setdcvalueindex scheme_current sub_wireless 19cbb8fa-5279-450e-9fac-8a3d5fedd0c1 0 >nul 2>&1
-    powercfg -setacvalueindex scheme_current sub_pcie 0ce3997e-6a54-4a3f-b1e8-4f8b9b7d8b6f 0 >nul 2>&1
-    powercfg -setdcvalueindex scheme_current sub_pcie 0ce3997e-6a54-4a3f-b1e8-4f8b9b7d8b6f 0 >nul 2>&1
-
-    echo [6/6] MTU 优化...
-    netsh interface ipv4 set subinterface "Wi-Fi" mtu=1500 store=persistent >nul 2>&1
-    netsh interface ipv4 set subinterface "以太网" mtu=1500 store=persistent >nul 2>&1
-
-    echo 网络优化完成。
-    echo 建议重启电脑以应用所有设置。
-) else (
-    echo 跳过网络优化。
-)
-
-echo.
-echo --- 2.4 修复 VPN/TUN 关闭后无法联网 ---
-echo 说明：刷新 DNS、重置 Winsock/IP、重置 WinHTTP 代理、恢复活动网卡自动 metric。
-echo 适合 Clash/mihomo/sing-box/WireGuard 的 TUN 模式或全局代理异常后的系统网络问题。
-echo 注意：执行后请测试网络，再重新开启 VPN/TUN。
-echo.
-set /p tunchoice=是否执行 VPN/TUN 网络修复？^(Y/N^):
-if /i "!tunchoice!"=="Y" (
-    call :fixvpntun
-    echo VPN/TUN 网络修复已执行，请测试网络后再开启 TUN。
-) else (
-    echo 跳过 VPN/TUN 网络修复。
-)
-
-echo.
-echo ==================================================
-echo 板块三、应用缓存清理
-echo ==================================================
-echo.
-
-echo --- 3.1 浏览器缓存 ---
-set /p brchoice=是否清理浏览器缓存（Chrome/Edge/Firefox）？^(Y/N^):
-if /i "!brchoice!"=="Y" (
     call :closeprocess chrome.exe
     call :closeprocess msedge.exe
     call :closeprocess firefox.exe
@@ -349,14 +337,13 @@ if /i "!brchoice!"=="Y" (
         echo   未找到 Firefox Profiles。
     )
     echo 浏览器缓存清理完成。
-) else (
-    echo 跳过浏览器缓存清理。
-)
-
 echo.
-echo --- 3.2 微信缓存 ---
-set /p wxchoice=是否清理微信缓存（聊天图片/视频，可能超 10GB）？^(Y/N^):
-if /i "!wxchoice!"=="Y" (
+goto :menu_clean
+
+:clean_wechat
+echo.
+echo ===== 清理微信缓存 =====
+echo.
     set "WX_FOUND=0"
     call :closeprocess WeChat.exe
     call :closeprocess Weixin.exe
@@ -445,40 +432,35 @@ if /i "!wxchoice!"=="Y" (
             )
         )
     )
-) else (
-    echo 跳过微信缓存清理。
-)
-
 echo.
-echo --- 3.3 VSCode 缓存 ---
-set /p vscchoice=是否清理 VSCode 缓存？^(Y/N^):
-if /i "!vscchoice!"=="Y" (
+goto :menu_clean
+
+:clean_vscode
+echo.
+echo ===== 清理 VSCode 缓存 =====
+echo.
     call :cleandir "%APPDATA%\Code\Cache" "VSCode Cache"
     call :cleandir "%APPDATA%\Code\CachedData" "VSCode CachedData"
     call :cleandir "%APPDATA%\Code\Code Cache" "VSCode Code Cache"
     call :cleandir "%APPDATA%\Code\GPUCache" "VSCode GPUCache"
     call :cleandir "%APPDATA%\Code\logs" "VSCode logs"
     call :cleandir "%APPDATA%\Code\CachedExtensionVSIXs" "VSCode CachedExtensionVSIXs"
-) else (
-    echo 跳过 VSCode 缓存清理。
-)
-
 echo.
-echo --- 3.4 NVIDIA 缓存 ---
-set /p nvchoice=是否清理 NVIDIA 缓存（Downloader + Installer2）？^(Y/N^):
-if /i "!nvchoice!"=="Y" (
+goto :menu_clean
+
+:clean_nvidia
+echo.
+echo ===== 清理 NVIDIA 缓存 =====
+echo.
     call :cleandir "%ProgramData%\NVIDIA Corporation\Downloader" "NVIDIA Downloader"
     call :cleandir "%ProgramFiles%\NVIDIA Corporation\Installer2" "NVIDIA Installer2"
-) else (
-    echo 跳过 NVIDIA 缓存清理。
-)
-
 echo.
-echo ==================================================
-echo 板块四、开发工具缓存
-echo ==================================================
-echo.
+goto :menu_clean
 
+:clean_dev
+echo.
+echo ===== 开发工具缓存 =====
+echo.
 echo --- 4.1 pip 缓存 ---
 set "PIP_CMD="
 python -m pip --version >nul 2>&1
@@ -505,11 +487,7 @@ if defined PIP_CMD (
 ) else (
     echo 未检测到可用的 pip，跳过。
 )
-
 echo.
-echo --- 4.2 npm 缓存 ---
-set /p npmchoice=是否清理 npm 缓存？^(Y/N^):
-if /i "!npmchoice!"=="Y" (
     where npm >nul 2>&1
     if not errorlevel 1 (
         echo   即将执行：npm cache clean --force
@@ -519,12 +497,7 @@ if /i "!npmchoice!"=="Y" (
     )
     call :cleandir "%APPDATA%\npm-cache" "npm Roaming 缓存"
     call :cleandir "%LOCALAPPDATA%\npm-cache" "npm LocalAppData 缓存"
-) else (
-    echo 跳过 npm 缓存清理。
-)
-
 echo.
-echo --- 4.3 conda 缓存 ---
 where conda >nul 2>&1
 if not errorlevel 1 (
     echo 已检测到 conda。
@@ -543,20 +516,11 @@ if not errorlevel 1 (
 ) else (
     echo 未检测到 conda，跳过。
 )
-
 echo.
-echo --- 4.4 __pycache__（当前用户目录内的 Python 字节码缓存） ---
-set /p pycchoice=是否清理当前用户目录内的 __pycache__ 目录？^(Y/N^):
-if /i "!pycchoice!"=="Y" (
     echo 仅扫描当前用户目录：%USERPROFILE% 和 %LOCALAPPDATA%，不会递归扫描整个 C 盘。
     powershell -NoProfile -ExecutionPolicy Bypass -Command "$roots=@($env:USERPROFILE,$env:LOCALAPPDATA) | Where-Object {$_ -and (Test-Path -LiteralPath $_)} | Select-Object -Unique; $dirs=@(); foreach($root in $roots){ $dirs += Get-ChildItem -LiteralPath $root -Directory -Filter __pycache__ -Recurse -Force -ErrorAction SilentlyContinue }; $count=0; foreach($dir in $dirs){ try { Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction Stop; $count++ } catch { Write-Host ('  跳过：' + $dir.FullName) } }; Write-Host ('  清理了 ' + $count + ' 个 __pycache__ 目录')"
     echo __pycache__ 已清理。
-) else (
-    echo 跳过 __pycache__ 清理。
-)
-
 echo.
-echo --- 4.5 Docker ---
 where docker >nul 2>&1
 if not errorlevel 1 (
     echo [Docker 当前占用]
@@ -575,16 +539,152 @@ if not errorlevel 1 (
 ) else (
     echo 未检测到 Docker，跳过。
 )
+echo.
+goto :menu_clean
 
+:menu_set
 echo.
 echo ==================================================
-echo 最后、分析 C:\ 下的大目录
+echo     [设置类] 请选择要执行的设置项
 echo ==================================================
-echo 单位：GB。这个步骤可能很慢，可按 N 跳过。
 echo.
+echo   [1] 关闭休眠
+echo   [2] 系统服务与性能优化（Xbox 服务/透明效果/OneDrive）
+echo   [3] 网络优化（DNS/协议重置/TCP/省电/MTU）
+echo   [4] 修复 VPN/TUN 无法联网
+echo   [5] 设置虚拟内存（页面文件）
+echo.
+echo   [0] 返回上级菜单
+echo.
+set /p smlchoice=请选择 (0-5):
+if "!smlchoice!"=="1" goto :set_hibernate
+if "!smlchoice!"=="2" goto :set_services
+if "!smlchoice!"=="3" goto :set_network
+if "!smlchoice!"=="4" goto :set_vpntun
+if "!smlchoice!"=="5" goto :set_pagefile
+if "!smlchoice!"=="0" goto :main_menu
+echo 输入无效，请重新选择。
+goto :menu_set
 
-set /p analyzechoice=是否现在分析 C 盘大目录？^(Y/N^):
-if /i "!analyzechoice!"=="Y" (
+:set_hibernate
+echo.
+echo ===== 关闭休眠 =====
+echo 说明：关闭休眠会删除 hiberfil.sys，通常释放数 GB 到几十 GB。
+echo 影响：不能使用"休眠"功能，普通关机和睡眠通常不受影响。
+echo.
+powercfg -h off
+echo 已关闭休眠。
+goto :menu_set
+
+:set_services
+echo.
+echo ===== 系统服务与性能优化 =====
+echo 说明：停止 Xbox 等非必要后台服务、关闭窗口透明效果、禁用 OneDrive 自启动。
+echo.
+    echo 停止非必要服务...
+    call :service_stop SysMain
+    sc config SysMain start= disabled >nul 2>&1
+    call :service_stop WSearch
+    sc config WSearch start= manual >nul 2>&1
+    call :service_stop XblAuthManager
+    sc config XblAuthManager start= disabled >nul 2>&1
+    call :service_stop XblGameSave
+    sc config XblGameSave start= disabled >nul 2>&1
+    call :service_stop XboxNetApiSvc
+    sc config XboxNetApiSvc start= disabled >nul 2>&1
+
+    echo 优化视觉效果...
+    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f >nul 2>&1
+    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f >nul 2>&1
+
+    echo 禁用 OneDrive 自启动...
+    reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v OneDrive /f >nul 2>&1
+
+    echo 系统服务与性能优化完成。
+    echo 建议重启电脑以应用所有设置。
+echo.
+goto :menu_set
+
+:set_network
+echo.
+echo ===== 网络优化 =====
+echo 说明：关闭后台网络服务、DNS 刷新、协议重置、TCP 参数调优、网卡省电关闭、MTU 优化。
+echo 注意：执行中网络会短暂断开，刷新后会恢复。
+echo.
+    echo [1/6] 关闭后台网络服务...
+    call :service_stop DoSvc
+    sc config DoSvc start= disabled >nul 2>&1
+    call :service_stop DiagTrack
+    sc config DiagTrack start= disabled >nul 2>&1
+    call :service_stop dmwappushservice
+    sc config dmwappushservice start= disabled >nul 2>&1
+
+    echo [2/6] 刷新 DNS 缓存...
+    ipconfig /flushdns >nul 2>&1
+
+    echo [3/6] 重置网络协议...
+    netsh winsock reset >nul 2>&1
+    netsh int ip reset >nul 2>&1
+    ipconfig /release >nul 2>&1
+    ipconfig /renew >nul 2>&1
+    netsh interface ip delete arpcache >nul 2>&1
+
+    echo [4/6] TCP/IP 性能参数优化...
+    netsh interface tcp set global autotuninglevel=normal >nul 2>&1
+    netsh interface tcp set global rss=enabled >nul 2>&1
+    netsh interface tcp set global ecncapability=enabled >nul 2>&1
+
+    echo [5/6] Wi-Fi 与网卡省电优化...
+    powercfg -setacvalueindex scheme_current sub_wireless 19cbb8fa-5279-450e-9fac-8a3d5fedd0c1 0 >nul 2>&1
+    powercfg -setdcvalueindex scheme_current sub_wireless 19cbb8fa-5279-450e-9fac-8a3d5fedd0c1 0 >nul 2>&1
+    powercfg -setacvalueindex scheme_current sub_pcie 0ce3997e-6a54-4a3f-b1e8-4f8b9b7d8b6f 0 >nul 2>&1
+    powercfg -setdcvalueindex scheme_current sub_pcie 0ce3997e-6a54-4a3f-b1e8-4f8b9b7d8b6f 0 >nul 2>&1
+
+    echo [6/6] MTU 优化...
+    netsh interface ipv4 set subinterface "Wi-Fi" mtu=1500 store=persistent >nul 2>&1
+    netsh interface ipv4 set subinterface "以太网" mtu=1500 store=persistent >nul 2>&1
+
+    echo 网络优化完成。
+    echo 建议重启电脑以应用所有设置。
+echo.
+goto :menu_set
+
+:set_vpntun
+echo.
+echo ===== 修复 VPN/TUN 无法联网 =====
+echo 说明：刷新 DNS、重置 Winsock/IP、重置 WinHTTP 代理、恢复活动网卡自动 metric。
+echo 适合 Clash/mihomo/sing-box/WireGuard 的 TUN 模式或全局代理异常后的系统网络问题。
+echo 注意：执行后请测试网络，再重新开启 VPN/TUN。
+echo.
+call :fixvpntun
+echo VPN/TUN 网络修复已执行，请测试网络后再开启 TUN。
+goto :menu_set
+
+:set_pagefile
+call :pagefile
+goto :menu_set
+
+:menu_analyze
+echo.
+echo ==================================================
+echo     [分析类] 请选择要执行的分析项
+echo ==================================================
+echo.
+echo   [1] 分析 C 盘大目录（含 DISM 组件清理 / 卷影副本上限）
+echo.
+echo   [0] 返回上级菜单
+echo.
+set /p amlchoice=请选择 (0-1):
+if "!amlchoice!"=="1" goto :analyze_disk
+if "!amlchoice!"=="0" goto :main_menu
+echo 输入无效，请重新选择。
+goto :menu_analyze
+
+:analyze_disk
+echo.
+echo ===== 分析 C:\ 下的大目录 =====
+echo 单位：GB。这个步骤可能很慢。
+echo.
     powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $targets=@((Join-Path $env:USERPROFILE 'AppData'), 'C:\ProgramData','C:\Windows','C:\System Volume Information') | Where-Object { Test-Path -LiteralPath $_ }; Write-Host '[重点目录]'; foreach($p in $targets){ $sum=0; try { $sum=(Get-ChildItem -LiteralPath $p -Recurse -Force -File -ErrorAction SilentlyContinue 2>$null | Measure-Object Length -Sum).Sum } catch { $sum=0 }; if($null -eq $sum){$sum=0}; [PSCustomObject]@{Name=$p; GB=[math]::Round($sum/1GB,2)} } | Format-Table -AutoSize; Write-Host ''; Write-Host '[C:\ 根目录 Top 12]'; Get-ChildItem C:\ -Force -ErrorAction SilentlyContinue | ForEach-Object { $sum=0; try { $sum=(Get-ChildItem -LiteralPath $_.FullName -Recurse -Force -File -ErrorAction SilentlyContinue 2>$null | Measure-Object Length -Sum).Sum } catch { $sum=0 }; if ($null -eq $sum) { $sum=0 }; [PSCustomObject]@{Name=$_.FullName; GB=[math]::Round($sum/1GB,2)} } | Sort-Object GB -Descending | Select-Object -First 12 | Format-Table -AutoSize"
 
     echo.
@@ -607,19 +707,17 @@ if /i "!analyzechoice!"=="Y" (
     ) else (
         echo 跳过 System Volume Information 处理。
     )
-) else (
-    echo 已跳过大目录分析。
-)
+echo.
+goto :menu_analyze
 
+:finish
 call :getfreegb FREE_AFTER
 for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "[math]::Round([double]'!FREE_AFTER!' - [double]'!FREE_BEFORE!', 2)"`) do set "FREE_DELTA=%%A"
-
 echo.
 echo ==================================================
 echo 清理后 C 盘空间
 echo ==================================================
 call :diskinfo
-
 echo.
 echo ==================================================
 echo C盘清理完成！
@@ -635,3 +733,4 @@ echo   C:\Windows
 echo   System Volume Information
 echo.
 pause
+exit /b
