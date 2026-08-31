@@ -8,6 +8,13 @@ Desktop.ini
 *.log
 *.tmp
 
+# Tauri / frontend build output
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+releases/
+
 # 编辑器
 .vscode/
 .idea/

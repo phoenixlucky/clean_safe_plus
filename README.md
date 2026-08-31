@@ -1,70 +1,86 @@
-﻿# C盘清理工具
+# Clean Safe Plus
 
-![版本](https://img.shields.io/badge/version-1.5.0-blue) ![平台](https://img.shields.io/badge/platform-Windows-lightgrey) ![许可](https://img.shields.io/badge/license-MIT-green)
+一个面向 Windows 的 C 盘安全清理桌面客户端，使用 Tauri 2.11+、Vue 3.5.x 和 Rust 构建。
 
-Windows C 盘安全清理工具 — 传统批处理命令行脚本。
+## 功能
 
----
+- 扫描 C 盘可用空间和明确可重建的缓存、临时文件、日志
+- 默认全选安全项目，保留桌面、下载、文档、浏览器登录信息和书签
+- 预览待清理空间，再由用户确认执行
+- 支持 Chrome、Edge、Firefox、微信、VSCode、NVIDIA/AMD 和开发工具缓存
+- 支持 pip、npm、conda、Python `__pycache__` 与 Docker 未使用资源清理
+- 支持关闭休眠、服务优化、网络/VPN/TUN 修复、页面文件设置
+- 支持 C 盘大目录分析、DISM 组件清理和卷影副本空间限制
+- 可选删除 Hermes 整个本地数据目录（需要单独勾选）
+- 可选调用 Windows 自带磁盘清理
+- 正在使用或受保护的文件自动跳过，不强制结束进程
 
-## 📁 项目结构
+## 开发
 
+环境要求：Node.js、Rust、Windows WebView2，以及 Tauri 所需的 Windows C++ 构建工具。
+
+```powershell
+npm install
+npm run dev
 ```
+
+启动 Tauri 开发窗口：
+
+```powershell
+npm run tauri dev
+```
+
+构建前端：
+
+```powershell
+npm run build
+```
+
+构建 Windows 可执行文件：
+
+```powershell
+node_modules\.bin\tauri.cmd build --no-bundle
+```
+
+也可以直接双击根目录的 `build.bat` 一键安装依赖并构建便携式 EXE。最终文件为 `releases\CleanSafePlus.exe`，无需安装即可运行（目标电脑仍需 WebView2 运行环境）。
+
+系统服务、网络、休眠、页面文件、DISM 和卷影副本等高级操作会在执行时请求管理员权限并显示确认提示。发布版 EXE 使用 Windows GUI 子系统，不会额外弹出黑色命令窗口。
+
+## 清理后端
+
+清理逻辑位于 `src-tauri/src/main.rs`，前端通过 Tauri command 调用：
+
+- `scan_cleanup`：返回可用空间和白名单清理项目
+- `clean_targets`：仅按白名单 ID 执行清理
+- `run_maintenance`：执行应用缓存、系统维护和网络修复操作
+- `set_pagefile`：设置系统自动、自定义或关闭页面文件
+- `analyze_disk`：分析重点目录和 C 盘 Top 12 大目录
+
+独立的 `cleanup_c_drive.ps1` 仍保留作为无界面备用工具。它默认只预览：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\cleanup_c_drive.ps1
+```
+
+确认执行缓存清理：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\cleanup_c_drive.ps1 -Apply
+```
+
+删除 Hermes 整个本地数据目录时，显式追加 `-RemoveHermes`。运行 Windows 自带清理时，追加 `-RunWindowsCleanup`。
+
+## 项目结构
+
+```text
 clean_safe_plus/
-├── clean_safe_plus.bat   # 命令行版主程序（批处理）
-├── README.md             # 本文档
-├── CHANGELOG.md          # 版本历史
-└── reasonix.toml         # Reasonix agent 配置（与本工具无关）
+├── src/                         # Vue 3 界面
+├── src-tauri/                   # Tauri 配置和 Rust 清理后端
+├── cleanup_c_drive.ps1          # 独立 PowerShell 备用工具
+├── package.json                 # 前端和 Tauri CLI 依赖
+└── vite.config.js               # Vite 配置
 ```
 
----
+## 安全边界
 
-## 📟 命令行版
-
-`clean_safe_plus.bat` — 传统批处理脚本。
-
-### 使用方式
-
-双击运行 `clean_safe_plus.bat`，自动请求管理员权限。
-
-或从管理员命令提示符运行：
-
-```bat
-clean_safe_plus.bat
-```
-
-### 执行流程
-
-1. **管理员权限检查** — 自动提权
-2. **显示 C 盘空间** — PowerShell 查询容量 / 剩余
-3. **主菜单选择分类** — 清理类 / 设置类 / 分析类
-4. **清理类** — 安全清理 / 浏览器缓存 / 微信缓存 / VSCode / NVIDIA / 开发工具缓存
-5. **设置类** — 关闭休眠 / 服务与性能优化 / 网络优化 / VPN-TUN 修复 / 设置虚拟内存（会改变系统配置，请谨慎选择）
-6. **分析类** — 分析 C 盘大目录 / DISM 组件清理 / 卷影副本上限
-7. **退出后显示清理结果** — 前后空间对比
-
-两级菜单可在同一分类内连续执行多个子项，完成后返回上级菜单继续选择。
-
-## 🛠️ 排错小节
-
-| 现象 | 可能原因 | 解决 |
-|---|---|---|
-| 启动时报"无法加载文件…未数字签名" | 执行策略限制 | 在管理员 PowerShell 执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
-| 清理 Temp 时部分文件占用 | 文件被其他程序持有 | 关闭浏览器/微信/VSCode 等再重试 |
-| Windows Update 清理后服务未启动 | 某些场景下 wuauserv 不会自动起 | 手动 `net start wuauserv` |
-| `docker system prune` 删除正在用的容器 | 容器仍在运行 | 先 `docker stop $(docker ps -aq)` 再清理 |
-| 清理后 C 盘空间没明显变化 | 占用来自 `C:\Users\<用户>\AppData` / `C:\Windows\WinSxS` 等深层 | 勾选"分析 C 盘大目录"定位 |
-
-更详细的问题排查与历史变更见 [CHANGELOG.md](./CHANGELOG.md)。
-
----
-
-## ⚠️ 重要提示
-
-- 建议在 **中文 Windows** 上运行
-- 需要 **管理员权限**（清理系统目录、回收站等必须）
-- 批处理文件（`.bat`）保持 **GBK/ANSI** 编码，不要改成 UTF-8
-- 如果 C 盘仍然很满，优先检查：
-  - `C:\Users\<用户名>\AppData`
-  - `C:\ProgramData`
-  - `C:\Windows`
-  - `System Volume Information`
+客户端不接受前端传入的任意路径，只能清理 Rust 后端内置白名单中的目录。Fincept 虚拟环境、Visual Studio 安装缓存、Codex 运行组件等应用数据不会被默认清理，避免误伤开发环境或已安装程序。
