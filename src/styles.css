@@ -22,10 +22,11 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .brand-caption { margin-top: 2px; color: #9aa8b2; font-size: 10px; }
 .search-box { justify-self: center; width: min(380px, 100%); height: 36px; gap: 9px; padding: 0 14px; color: #92a0ab; border: 1px solid #dce6ed; border-radius: 20px; background: rgba(255,255,255,.9); font-size: 11px; }
 .search-box span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.search-mark { color: #465260; font-size: 18px; line-height: 1; }
+.search-mark { width: 16px; height: 16px; flex: 0 0 auto; display: block; object-fit: contain; }
 .topbar-meta { justify-content: flex-end; gap: 9px; color: #82909b; font-size: 11px; }
 .status-dot, .side-status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #4bc48a; box-shadow: 0 0 0 4px rgba(75,196,138,.13); }
-.icon-button { width: 29px; height: 29px; margin-left: 6px; border: 1px solid #dce6ed; border-radius: 9px; color: #63717c; background: #fff; font-size: 18px; line-height: 1; }
+.icon-button { width: 29px; height: 29px; display: grid; place-items: center; margin-left: 6px; padding: 0; border: 1px solid #dce6ed; border-radius: 9px; background: #fff; }
+.icon-button img { width: 15px; height: 15px; display: block; object-fit: contain; }
 
 .app-body { min-height: 0; flex: 1 1 auto; display: grid; grid-template-columns: 78px minmax(0, 1fr); }
 .sidebar { min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 24px 8px 15px; border-right: 1px solid rgba(215, 229, 238, .86); background: rgba(246, 251, 254, .66); }
@@ -33,15 +34,16 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .side-item { width: 62px; min-height: 70px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px 4px; color: #6c7884; border: 0; border-radius: 21px; background: transparent; }
 .side-item:hover { color: #313947; background: rgba(255,255,255,.62); }
 .side-item.active { color: #202631; background: #fff; box-shadow: 0 10px 25px rgba(93, 116, 133, .12); }
-.side-mark { width: 26px; height: 26px; display: grid; place-items: center; color: #6b7783; border: 1px solid #c8d5de; border-radius: 8px; font-size: 11px; font-weight: 800; }
+.side-mark { width: 26px; height: 26px; display: grid; place-items: center; color: #6b7783; border: 1px solid #c8d5de; border-radius: 8px; }
+.side-mark img, .shortcut-mark img, .target-icon img, .empty-icon img { width: 16px; height: 16px; display: block; object-fit: contain; }
 .side-item.active .side-mark { color: #fff; border-color: #333b48; background: #333b48; }
 .side-label { font-size: 11px; font-weight: 700; }
 .side-item small { color: #a4afb8; font-size: 9px; }
 .sidebar-foot { display: flex; flex-direction: column; align-items: center; gap: 7px; color: #94a1ab; font-size: 9px; }
 
-.dashboard-main { min-width: 0; min-height: 0; position: relative; padding: 20px 28px 10px; overflow: hidden; }
-.home-view { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 16px; overflow: hidden; }
-.home-top { min-height: 0; flex: 1 1 auto; display: grid; grid-template-columns: minmax(0, .92fr) minmax(420px, 1.08fr); gap: 34px; }
+.dashboard-main { min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; padding: 20px 28px 10px; overflow: hidden; }
+.home-view { width: 100%; flex: 1 1 auto; height: auto; min-height: 0; display: grid; grid-template-rows: minmax(360px, 1fr) minmax(195px, 1fr); gap: 16px; overflow: hidden; }
+.home-top { min-height: 0; display: grid; grid-template-columns: minmax(0, .92fr) minmax(420px, 1.08fr); gap: 34px; overflow: hidden; }
 .hero-block { min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 8px 0 8px 38px; }
 .eyebrow, .section-kicker { color: #8d9da8; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
 .eyebrow { margin-bottom: 14px; color: #4e91ad; }
@@ -91,7 +93,8 @@ h1 { max-width: 500px; color: #202631; font-size: clamp(34px, 4vw, 54px); line-h
 .target-row input, .option-row input { position: absolute; opacity: 0; pointer-events: none; }
 .checkmark, .option-check { width: 17px; height: 17px; display: grid; place-items: center; border: 1.5px solid #cedae2; border-radius: 5px; color: transparent; font-size: 10px; font-weight: 900; }
 .target-row.selected .checkmark, .option-row input:checked + .option-check { color: #fff; border-color: #4c9bb6; background: #4c9bb6; }
-.target-icon { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 8px; font-size: 12px; font-weight: 800; }
+.target-icon { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 8px; }
+.target-icon img { width: 17px; height: 17px; }
 .safe-icon { color: #4e91ad; background: #eaf5f9; }
 .danger-icon { color: #d47751; background: #fff0e9; }
 .target-main { min-width: 0; }
@@ -104,14 +107,15 @@ h1 { max-width: 500px; color: #202631; font-size: clamp(34px, 4vw, 54px); line-h
 .panel-footnote { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .shield { color: #56ad8a; font-size: 13px; }
 .empty-state { min-height: 100px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: #9aa7af; font-size: 11px; }
-.empty-icon { color: #4d98b1; font-size: 24px; }
+.empty-icon { color: #4d98b1; }
 .loader, .button-loader { border: 2px solid #d9ebf0; border-top-color: #4c9bb6; border-radius: 50%; animation: spin .75s linear infinite; }
 .loader { width: 22px; height: 22px; }
 .button-loader { width: 13px; height: 13px; border-color: rgba(255,255,255,.4); border-top-color: #fff; }
 
 .shortcut-row { min-width: 0; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 9px; width: 100%; margin-top: 8px; padding: 7px 3px; text-align: left; border: 0; border-bottom: 1px solid #f0f3f5; color: #4a5661; background: transparent; }
 .shortcut-row:hover:not(:disabled) { color: #27809e; }
-.shortcut-mark { width: 25px; height: 25px; display: grid; place-items: center; color: #66808c; border: 1px solid #ccdce4; border-radius: 8px; font-size: 10px; font-weight: 800; }
+.shortcut-mark { width: 25px; height: 25px; display: grid; place-items: center; color: #66808c; border: 1px solid #ccdce4; border-radius: 8px; }
+.shortcut-mark img { width: 14px; height: 14px; }
 .shortcut-row strong, .shortcut-row small { display: block; }
 .shortcut-row strong { font-size: 11px; }
 .shortcut-row small { overflow: hidden; margin-top: 3px; color: #9aa7af; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }

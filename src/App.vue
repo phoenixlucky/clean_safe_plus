@@ -19,9 +19,9 @@ const analysisCopyStatus = ref('')
 const analysisOpenPath = ref('')
 
 const navItems = [
-  { id: 'home', label: '电脑', hint: '概览', mark: 'C' },
-  { id: 'tools', label: '系统工具', hint: '维护', mark: 'S' },
-  { id: 'analysis', label: '磁盘分析', hint: '空间', mark: 'D' },
+  { id: 'home', label: '电脑', hint: '概览', icon: 'computer' },
+  { id: 'tools', label: '系统工具', hint: '维护', icon: 'tools' },
+  { id: 'analysis', label: '磁盘分析', hint: '空间', icon: 'disk' },
 ]
 
 const pagefileMode = ref('auto')
@@ -253,15 +253,15 @@ onMounted(scan)
         <div class="brand-mark">CS</div>
         <div><div class="brand-name">Clean Safe Plus</div><div class="brand-caption">Windows 空间管理</div></div>
       </div>
-      <div class="search-box"><span class="search-mark">⌕</span><span>搜索管家功能，例如：快速清理、磁盘分析</span></div>
-      <div class="topbar-meta"><span class="status-dot"></span><span>本机 · C 盘</span><button class="icon-button" title="重新扫描" :disabled="busy" @click="scan">↻</button></div>
+      <div class="search-box"><img class="search-mark" src="/icons/search.webp" alt="" /><span>搜索管家功能，例如：快速清理、磁盘分析</span></div>
+      <div class="topbar-meta"><span class="status-dot"></span><span>本机 · C 盘</span><button class="icon-button" title="重新扫描" :disabled="busy" @click="scan"><img src="/icons/refresh.webp" alt="" /></button></div>
     </header>
 
     <div class="app-body">
       <aside class="sidebar">
         <nav class="side-nav" aria-label="主导航">
           <button v-for="item in navItems" :key="item.id" class="side-item" :class="{ active: activeView === item.id }" @click="openView(item.id)">
-            <span class="side-mark">{{ item.mark }}</span><span class="side-label">{{ item.label }}</span><small>{{ item.hint }}</small>
+            <span class="side-mark" aria-hidden="true"><img :src="`/icons/${item.icon}.webp`" alt="" /></span><span class="side-label">{{ item.label }}</span><small>{{ item.hint }}</small>
           </button>
         </nav>
         <div class="sidebar-foot"><span class="side-status-dot"></span><span>安全模式</span></div>
@@ -296,12 +296,12 @@ onMounted(scan)
               <section class="panel target-card">
                 <div class="panel-heading"><div><div class="section-kicker">CLEANUP TARGETS</div><h2>清理项目</h2></div><span class="selection-count">{{ selected.size }} 已选</span></div>
                 <div v-if="loading" class="empty-state"><div class="loader"></div><span>正在扫描 C 盘…</span></div>
-                <div v-else-if="!targets.length" class="empty-state"><span class="empty-icon">◌</span><span>没有发现可清理项目</span></div>
-                <div v-else class="target-list"><label v-for="target in targets" :key="target.id" class="target-row" :class="{ selected: selected.has(target.id), danger: !target.safe }"><input type="checkbox" :checked="selected.has(target.id)" @change="toggleTarget(target.id)" /><span class="checkmark">✓</span><span class="target-icon" :class="target.safe ? 'safe-icon' : 'danger-icon'">{{ target.safe ? '✦' : '!' }}</span><span class="target-main"><span class="target-label">{{ target.label }}</span><span class="target-path">{{ formatPath(target.path) }}</span><span v-if="!target.safe" class="danger-note">整目录删除 · 配置和登录信息会丢失</span></span><span class="target-size">{{ formatBytes(target.bytes) }}</span></label></div>
+                <div v-else-if="!targets.length" class="empty-state"><span class="empty-icon" aria-hidden="true"><img src="/icons/empty.webp" alt="" /></span><span>没有发现可清理项目</span></div>
+                <div v-else class="target-list"><label v-for="target in targets" :key="target.id" class="target-row" :class="{ selected: selected.has(target.id), danger: !target.safe }"><input type="checkbox" :checked="selected.has(target.id)" @change="toggleTarget(target.id)" /><span class="checkmark">✓</span><span class="target-icon" :class="target.safe ? 'safe-icon' : 'danger-icon'" aria-hidden="true"><img :src="`/icons/${target.safe ? 'cleanup' : 'warning'}.webp`" alt="" /></span><span class="target-main"><span class="target-label">{{ target.label }}</span><span class="target-path">{{ formatPath(target.path) }}</span><span v-if="!target.safe" class="danger-note">整目录删除 · 配置和登录信息会丢失</span></span><span class="target-size">{{ formatBytes(target.bytes) }}</span></label></div>
                 <div class="panel-footnote"><span class="shield">⌾</span> 正在使用的文件会自动跳过，不会强制结束进程。</div>
               </section>
 
-              <section class="panel shortcuts-card"><div class="panel-heading"><div><div class="section-kicker">QUICK ACCESS</div><h2>常用入口</h2></div><span class="selection-count">按需使用</span></div><button class="shortcut-row" @click="openView('tools')"><span class="shortcut-mark">S</span><span><strong>系统工具</strong><small>服务、网络、休眠和页面文件</small></span><span class="shortcut-arrow">→</span></button><button class="shortcut-row" @click="openView('analysis')"><span class="shortcut-mark">D</span><span><strong>磁盘分析</strong><small>定位 1GB 以上的大文件夹</small></span><span class="shortcut-arrow">→</span></button><button class="shortcut-row" :disabled="busy" @click="scan"><span class="shortcut-mark">R</span><span><strong>重新扫描</strong><small>刷新可清理项目和可用空间</small></span><span class="shortcut-arrow">↻</span></button><p class="safe-caption"><span>◈</span> 只处理选中的缓存和临时文件</p></section>
+              <section class="panel shortcuts-card"><div class="panel-heading"><div><div class="section-kicker">QUICK ACCESS</div><h2>常用入口</h2></div><span class="selection-count">按需使用</span></div><button class="shortcut-row" @click="openView('tools')"><span class="shortcut-mark" aria-hidden="true"><img src="/icons/tools.webp" alt="" /></span><span><strong>系统工具</strong><small>服务、网络、休眠和页面文件</small></span><span class="shortcut-arrow">→</span></button><button class="shortcut-row" @click="openView('analysis')"><span class="shortcut-mark" aria-hidden="true"><img src="/icons/disk.webp" alt="" /></span><span><strong>磁盘分析</strong><small>定位 1GB 以上的大文件夹</small></span><span class="shortcut-arrow">→</span></button><button class="shortcut-row" :disabled="busy" @click="scan"><span class="shortcut-mark" aria-hidden="true"><img src="/icons/refresh.webp" alt="" /></span><span><strong>重新扫描</strong><small>刷新可清理项目和可用空间</small></span><span class="shortcut-arrow">↻</span></button><p class="safe-caption"><span aria-hidden="true">◈</span> 只处理选中的缓存和临时文件</p></section>
             </section>
             <section v-if="lastReport" class="result-strip"><span class="result-icon">✓</span><div><strong>上次清理已完成</strong><span>释放约 {{ formatBytes(lastReport.freed_bytes) }}，C 盘可用空间已刷新。</span></div></section>
           </div>
