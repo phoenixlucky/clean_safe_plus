@@ -14,6 +14,13 @@ const notice = ref('')
 const lastReport = ref(null)
 const lastAction = ref(null)
 const analysis = ref(null)
+const activeView = ref('home')
+
+const navItems = [
+  { id: 'home', label: '电脑', hint: '概览', mark: 'C' },
+  { id: 'tools', label: '系统工具', hint: '维护', mark: 'S' },
+  { id: 'analysis', label: '磁盘分析', hint: '空间', mark: 'D' },
+]
 
 const pagefileMode = ref('auto')
 const pagefileDrive = ref('D')
@@ -45,6 +52,17 @@ const selectedBytes = computed(() => selectedTargets.value.reduce((total, target
 const selectedHermes = computed(() => selected.value.has('hermes'))
 const safeTargetCount = computed(() => targets.value.filter((target) => target.safe).length)
 const busy = computed(() => loading.value || cleaning.value || Boolean(actionBusy.value))
+const analysisRows = computed(() => {
+  const rows = []
+  const visit = (nodes, depth) => {
+    for (const node of nodes ?? []) {
+      rows.push({ path: node.path, bytes: node.bytes, depth })
+      visit(node.children, depth + 1)
+    }
+  }
+  visit(analysis.value?.folders, 0)
+  return rows
+})
 
 function formatBytes(bytes) {
   if (!bytes || bytes < 1024) return '0 B'
@@ -74,6 +92,11 @@ function clearMessages() {
   notice.value = ''
 }
 
+function openView(view) {
+  activeView.value = view
+  clearMessages()
+}
+
 async function scan() {
   loading.value = true
   clearMessages()
@@ -94,6 +117,7 @@ async function clean() {
   if (selectedHermes.value && !window.confirm('Hermes 整个本地数据目录将被删除，包含配置和登录信息。确定继续吗？')) return
 
   cleaning.value = true
+  activeView.value = 'home'
   clearMessages()
   lastAction.value = null
   try {
@@ -112,6 +136,7 @@ async function clean() {
 
 async function runTool(tool) {
   if (tool.confirm && !window.confirm(tool.confirm)) return
+  activeView.value = 'tools'
   actionBusy.value = tool.id
   clearMessages()
   lastAction.value = null
@@ -135,6 +160,7 @@ async function setPagefile() {
       ? `将把 ${pagefileDrive.value}: 页面文件设置为 ${pagefileInitial.value}–${pagefileMaximum.value} MB，确认？`
       : '将页面文件恢复为系统自动管理，确认？'
   if (!window.confirm(warning)) return
+  activeView.value = 'tools'
   actionBusy.value = 'pagefile'
   clearMessages()
   try {
@@ -152,12 +178,13 @@ async function setPagefile() {
 }
 
 async function analyzeDisk() {
+  activeView.value = 'analysis'
   actionBusy.value = 'disk-analysis'
   clearMessages()
   analysis.value = null
   try {
     analysis.value = await invoke('analyze_disk')
-    notice.value = '磁盘分析完成。'
+    notice.value = '1GB 以上文件夹分析完成。'
   } catch (err) {
     error.value = `磁盘分析失败：${String(err)}`
   } finally {
@@ -173,108 +200,84 @@ onMounted(scan)
     <header class="topbar">
       <div class="brand-lockup">
         <div class="brand-mark">CS</div>
-        <div>
-          <div class="brand-name">Clean Safe Plus</div>
-          <div class="brand-caption">Windows 空间管理</div>
-        </div>
+        <div><div class="brand-name">Clean Safe Plus</div><div class="brand-caption">Windows 空间管理</div></div>
       </div>
-      <div class="topbar-meta">
-        <span class="status-dot"></span>
-        <span>本机 · C 盘</span>
-        <button class="icon-button" title="重新扫描" :disabled="busy" @click="scan">↻</button>
-      </div>
+      <div class="search-box"><span class="search-mark">⌕</span><span>搜索管家功能，例如：快速清理、磁盘分析</span></div>
+      <div class="topbar-meta"><span class="status-dot"></span><span>本机 · C 盘</span><button class="icon-button" title="重新扫描" :disabled="busy" @click="scan">↻</button></div>
     </header>
 
-    <main class="page-content">
-      <section class="hero-row">
-        <div>
-          <div class="eyebrow">安全清理控制台</div>
-          <h1>让 C 盘保持轻盈。</h1>
-          <p class="hero-copy">先扫描，再选择。清理缓存，也可以处理系统维护和网络修复。</p>
-        </div>
-        <div class="free-space-card">
-          <div class="free-space-label">当前可用空间</div>
-          <div class="free-space-value">{{ formatBytes(freeBytes) }}</div>
-          <div class="free-space-bar"><span :style="{ width: `${Math.min(Math.max(freeBytes / (128 * 1024 ** 3) * 100, 4), 100)}%` }"></span></div>
-          <div class="free-space-foot">扫描自本机 C 盘</div>
-        </div>
-      </section>
+    <div class="app-body">
+      <aside class="sidebar">
+        <nav class="side-nav" aria-label="主导航">
+          <button v-for="item in navItems" :key="item.id" class="side-item" :class="{ active: activeView === item.id }" @click="openView(item.id)">
+            <span class="side-mark">{{ item.mark }}</span><span class="side-label">{{ item.label }}</span><small>{{ item.hint }}</small>
+          </button>
+        </nav>
+        <div class="sidebar-foot"><span class="side-status-dot"></span><span>安全模式</span></div>
+      </aside>
 
-      <div v-if="error" class="banner banner-error">{{ error }}</div>
-      <div v-if="notice" class="banner banner-success">{{ notice }}</div>
+      <main class="dashboard-main">
+        <div v-if="error" class="message-bar message-error">{{ error }}</div>
+        <div v-if="notice" class="message-bar message-success">{{ notice }}</div>
 
-      <section class="stats-row">
-        <div class="stat-card"><span class="stat-icon violet">◎</span><div><span class="stat-label">可清理项目</span><strong>{{ safeTargetCount }}</strong></div></div>
-        <div class="stat-card"><span class="stat-icon blue">↘</span><div><span class="stat-label">已选择空间</span><strong>{{ formatBytes(selectedBytes) }}</strong></div></div>
-        <div class="stat-card"><span class="stat-icon green">✓</span><div><span class="stat-label">默认策略</span><strong>保留个人文件</strong></div></div>
-      </section>
+        <template v-if="activeView === 'home'">
+          <div class="home-view">
+            <section class="home-top">
+              <div class="hero-block">
+                <div class="eyebrow">电脑 · C 盘空间</div>
+                <h1>让 C 盘保持轻盈。</h1>
+                <p class="hero-copy">先扫描，再选择。安全清理缓存，同时保留桌面、下载和个人文档。</p>
+                <div class="hero-points"><span>✓ 保留个人文件</span><span>✓ 占用文件自动跳过</span></div>
+                <div class="hero-buttons"><button class="primary-button" :disabled="busy || !selected.size" @click="clean"><span v-if="cleaning" class="button-loader"></span><span v-else>清理加速</span><span v-if="!cleaning" class="button-arrow">→</span></button><button class="hero-secondary" @click="openView('tools')">更多工具</button></div>
+              </div>
 
-      <section class="workspace-grid">
-        <div class="panel targets-panel">
-          <div class="panel-heading">
-            <div><div class="section-kicker">CLEANUP TARGETS</div><h2>清理项目</h2></div>
-            <span class="selection-count">{{ selected.size }} 已选</span>
+              <div class="summary-stack">
+                <section class="dashboard-card device-card">
+                  <div class="card-heading"><span>设备状态</span><span class="card-chevron">›</span></div>
+                  <div class="device-metrics"><div><span class="metric-label">当前可用空间</span><strong class="metric-primary">{{ formatBytes(freeBytes) }}</strong><small>C 盘</small></div><div><span class="metric-label">可清理项目</span><strong>{{ safeTargetCount }}</strong><small>项</small></div><div><span class="metric-label">已选择空间</span><strong>{{ formatBytes(selectedBytes) }}</strong><small>待处理</small></div></div>
+                </section>
+                <div class="summary-row"><section class="dashboard-card mini-card"><div class="card-heading"><span>扫描状态</span><span class="card-chevron">›</span></div><strong>{{ loading ? '扫描中' : '已就绪' }}</strong><small>{{ loading ? '正在读取 C 盘' : '可以开始清理' }}</small></section><section class="dashboard-card mini-card"><div class="card-heading"><span>清理策略</span><span class="card-chevron">›</span></div><strong>安全模式</strong><small>保留个人文件</small></section></div>
+                <section class="dashboard-card cleanup-card"><div class="card-heading"><span>本次清理</span><span class="card-chevron">›</span></div><div class="cleanup-line"><span>已选择项目</span><strong>{{ selectedTargets.length }} 项</strong></div><div class="cleanup-line"><span>预计释放空间</span><strong class="accent-value">{{ formatBytes(selectedBytes) }}</strong></div></section>
+              </div>
+            </section>
+
+            <section class="home-bottom">
+              <section class="panel target-card">
+                <div class="panel-heading"><div><div class="section-kicker">CLEANUP TARGETS</div><h2>清理项目</h2></div><span class="selection-count">{{ selected.size }} 已选</span></div>
+                <div v-if="loading" class="empty-state"><div class="loader"></div><span>正在扫描 C 盘…</span></div>
+                <div v-else-if="!targets.length" class="empty-state"><span class="empty-icon">◌</span><span>没有发现可清理项目</span></div>
+                <div v-else class="target-list"><label v-for="target in targets" :key="target.id" class="target-row" :class="{ selected: selected.has(target.id), danger: !target.safe }"><input type="checkbox" :checked="selected.has(target.id)" @change="toggleTarget(target.id)" /><span class="checkmark">✓</span><span class="target-icon" :class="target.safe ? 'safe-icon' : 'danger-icon'">{{ target.safe ? '✦' : '!' }}</span><span class="target-main"><span class="target-label">{{ target.label }}</span><span class="target-path">{{ formatPath(target.path) }}</span><span v-if="!target.safe" class="danger-note">整目录删除 · 配置和登录信息会丢失</span></span><span class="target-size">{{ formatBytes(target.bytes) }}</span></label></div>
+                <div class="panel-footnote"><span class="shield">⌾</span> 正在使用的文件会自动跳过，不会强制结束进程。</div>
+              </section>
+
+              <section class="panel shortcuts-card"><div class="panel-heading"><div><div class="section-kicker">QUICK ACCESS</div><h2>常用入口</h2></div><span class="selection-count">按需使用</span></div><button class="shortcut-row" @click="openView('tools')"><span class="shortcut-mark">S</span><span><strong>系统工具</strong><small>服务、网络、休眠和页面文件</small></span><span class="shortcut-arrow">→</span></button><button class="shortcut-row" @click="openView('analysis')"><span class="shortcut-mark">D</span><span><strong>磁盘分析</strong><small>定位 1GB 以上的大文件夹</small></span><span class="shortcut-arrow">→</span></button><button class="shortcut-row" :disabled="busy" @click="scan"><span class="shortcut-mark">R</span><span><strong>重新扫描</strong><small>刷新可清理项目和可用空间</small></span><span class="shortcut-arrow">↻</span></button><p class="safe-caption"><span>◈</span> 只处理选中的缓存和临时文件</p></section>
+            </section>
+            <section v-if="lastReport" class="result-strip"><span class="result-icon">✓</span><div><strong>上次清理已完成</strong><span>释放约 {{ formatBytes(lastReport.freed_bytes) }}，C 盘可用空间已刷新。</span></div></section>
           </div>
+        </template>
 
-          <div v-if="loading" class="empty-state"><div class="loader"></div><span>正在扫描 C 盘…</span></div>
-          <div v-else-if="!targets.length" class="empty-state"><span class="empty-icon">◌</span><span>没有发现可清理项目</span></div>
-          <div v-else class="target-list">
-            <label v-for="target in targets" :key="target.id" class="target-row" :class="{ selected: selected.has(target.id), danger: !target.safe }">
-              <input type="checkbox" :checked="selected.has(target.id)" @change="toggleTarget(target.id)" />
-              <span class="checkmark">✓</span>
-              <span class="target-icon" :class="target.safe ? 'safe-icon' : 'danger-icon'">{{ target.safe ? '✦' : '!' }}</span>
-              <span class="target-main"><span class="target-label">{{ target.label }}</span><span class="target-path">{{ formatPath(target.path) }}</span><span v-if="!target.safe" class="danger-note">整目录删除 · 配置和登录信息会丢失</span></span>
-              <span class="target-size">{{ formatBytes(target.bytes) }}</span>
-            </label>
-          </div>
-          <div class="panel-footnote"><span class="shield">⌾</span> 正在使用的文件会自动跳过，不会强制结束进程。</div>
-        </div>
+        <template v-else-if="activeView === 'tools'">
+          <section class="panel workspace-view">
+            <div class="workspace-heading"><div><div class="section-kicker">SYSTEM TOOLS</div><h2>系统工具</h2><p class="panel-subtitle">高级清理、系统维护和页面文件配置。</p></div><button class="back-button" @click="openView('home')">返回概览</button></div>
+            <div class="tools-body">
+              <section v-if="lastAction" class="action-result" :class="lastAction.success ? 'action-result-success' : 'action-result-failure'"><div class="action-result-heading"><span class="action-status-icon">{{ lastAction.success ? '✓' : '!' }}</span><div><strong>{{ lastAction.message }}</strong><small>最近一次高级操作</small></div></div><div v-if="lastAction.details?.length" class="action-result-list"><span v-for="detail in lastAction.details" :key="detail">{{ detail }}</span></div><div v-if="lastAction.warnings?.length" class="action-result-list action-result-warning"><span v-for="warning in lastAction.warnings" :key="warning">{{ warning }}</span></div></section>
+              <div class="tool-section"><div class="tool-section-title">应用与开发缓存</div><div class="tool-grid"><button v-for="tool in cleanupTools" :key="tool.id" class="tool-button" :disabled="busy" @click="runTool(tool)"><span class="tool-button-main"><strong>{{ tool.label }}</strong><small>{{ tool.description }}</small></span><span class="tool-arrow">{{ actionBusy === tool.id ? '…' : '→' }}</span></button></div></div>
+              <div class="tool-section"><div class="tool-section-title">系统与网络</div><div class="tool-grid"><button v-for="tool in systemTools" :key="tool.id" class="tool-button tool-button-warning" :disabled="busy" @click="runTool(tool)"><span class="tool-button-main"><strong>{{ tool.label }}</strong><small>{{ tool.description }}</small></span><span class="tool-arrow">{{ actionBusy === tool.id ? '…' : '→' }}</span></button></div></div>
+              <div class="tool-section"><div class="tool-section-title">虚拟内存（页面文件）</div><div class="pagefile-controls"><label><span>模式</span><select v-model="pagefileMode" :disabled="busy"><option value="auto">系统自动管理</option><option value="custom">自定义大小</option><option value="none">不使用页面文件</option></select></label><label v-if="pagefileMode === 'custom'"><span>磁盘</span><input v-model="pagefileDrive" maxlength="2" /></label><label v-if="pagefileMode === 'custom'"><span>初始 MB</span><input v-model.number="pagefileInitial" type="number" min="1" /></label><label v-if="pagefileMode === 'custom'"><span>最大 MB</span><input v-model.number="pagefileMaximum" type="number" min="1" /></label><button class="compact-button" :disabled="busy" @click="setPagefile">{{ actionBusy === 'pagefile' ? '处理中…' : '应用设置' }}</button></div></div>
+            </div>
+          </section>
+        </template>
 
-        <aside class="panel action-panel">
-          <div class="section-kicker">READY TO CLEAN</div>
-          <h2>准备开始</h2>
-          <p class="action-copy">已选择 {{ selectedTargets.length }} 个项目，共 {{ formatBytes(selectedBytes) }}。</p>
-          <label class="option-row"><input v-model="runWindowsCleanup" type="checkbox" /><span class="option-check">✓</span><span><strong>运行 Windows 磁盘清理</strong><small>清理系统认可的临时项目和缩略图</small></span></label>
-          <div v-if="selectedHermes" class="warning-box"><span class="warning-icon">!</span><span>Hermes 会被整目录删除。它的本地配置、登录信息和缓存都会清除。</span></div>
-          <button class="primary-button" :disabled="busy || !selected.size" @click="clean"><span v-if="cleaning" class="button-loader"></span><span v-else>立即清理</span><span v-if="!cleaning" class="button-arrow">→</span></button>
-          <button class="secondary-button" :disabled="busy" @click="scan">重新扫描</button>
-          <p class="safe-caption"><span>◈</span> 安全模式 · 不触碰桌面、下载和文档</p>
-        </aside>
-      </section>
-
-      <section class="panel tools-panel">
-        <div class="panel-heading"><div><div class="section-kicker">ADVANCED MAINTENANCE</div><h2>更多工具</h2><p class="panel-subtitle">按用途分组的高级操作；执行前会先确认，结果显示在下方。</p></div><span class="selection-count">需谨慎操作</span></div>
-        <div class="tool-section"><div class="tool-section-title">应用与开发缓存</div><div class="tool-grid"><button v-for="tool in cleanupTools" :key="tool.id" class="tool-button" :disabled="busy" @click="runTool(tool)"><span class="tool-button-main"><strong>{{ tool.label }}</strong><small>{{ tool.description }}</small></span><span class="tool-arrow">{{ actionBusy === tool.id ? '…' : '→' }}</span></button></div></div>
-        <div class="tool-section"><div class="tool-section-title">系统与网络</div><div class="tool-grid"><button v-for="tool in systemTools" :key="tool.id" class="tool-button tool-button-warning" :disabled="busy" @click="runTool(tool)"><span class="tool-button-main"><strong>{{ tool.label }}</strong><small>{{ tool.description }}</small></span><span class="tool-arrow">{{ actionBusy === tool.id ? '…' : '→' }}</span></button></div></div>
-
-        <div class="tool-section pagefile-section">
-          <div class="tool-section-title">虚拟内存（页面文件）</div>
-          <div class="pagefile-controls">
-            <label><span>模式</span><select v-model="pagefileMode" :disabled="busy"><option value="auto">系统自动管理</option><option value="custom">自定义大小</option><option value="none">不使用页面文件</option></select></label>
-            <label v-if="pagefileMode === 'custom'"><span>磁盘</span><input v-model="pagefileDrive" maxlength="2" /></label>
-            <label v-if="pagefileMode === 'custom'"><span>初始 MB</span><input v-model.number="pagefileInitial" type="number" min="1" /></label>
-            <label v-if="pagefileMode === 'custom'"><span>最大 MB</span><input v-model.number="pagefileMaximum" type="number" min="1" /></label>
-            <button class="compact-button" :disabled="busy" @click="setPagefile">{{ actionBusy === 'pagefile' ? '处理中…' : '应用设置' }}</button>
-          </div>
-        </div>
-
-        <div class="tool-section analysis-section">
-          <div class="tool-section-title">磁盘分析</div>
-          <button class="secondary-button analysis-button" :disabled="busy" @click="analyzeDisk">{{ actionBusy === 'disk-analysis' ? '正在分析…' : '分析 C 盘大目录' }}</button>
-          <div v-if="analysis" class="analysis-grid">
-            <div><strong>重点目录</strong><div v-for="entry in analysis.focus" :key="entry.path" class="analysis-row"><span>{{ entry.path }}</span><b>{{ formatBytes(entry.bytes) }}</b></div></div>
-            <div><strong>C 盘 Top 12</strong><div v-for="entry in analysis.top" :key="entry.path" class="analysis-row"><span>{{ entry.path }}</span><b>{{ formatBytes(entry.bytes) }}</b></div></div>
-          </div>
-        </div>
-        <section v-if="lastAction" class="action-result" :class="lastAction.success ? 'action-result-success' : 'action-result-failure'">
-          <div class="action-result-heading"><span class="action-status-icon">{{ lastAction.success ? '✓' : '!' }}</span><div><strong>{{ lastAction.message }}</strong><small>最近一次高级操作</small></div></div>
-          <div v-if="lastAction.details?.length" class="action-result-list"><span v-for="detail in lastAction.details" :key="detail">{{ detail }}</span></div>
-          <div v-if="lastAction.warnings?.length" class="action-result-list action-result-warning"><span v-for="warning in lastAction.warnings" :key="warning">{{ warning }}</span></div>
-        </section>
-      </section>
-
-      <section v-if="lastReport" class="result-strip"><span class="result-icon">✓</span><div><strong>上次清理已完成</strong><span>释放约 {{ formatBytes(lastReport.freed_bytes) }}，C 盘可用空间已刷新。</span></div></section>
-    </main>
+        <template v-else>
+          <section class="panel workspace-view analysis-view">
+            <div class="workspace-heading"><div><div class="section-kicker">DISK ANALYSIS</div><h2>磁盘分析</h2><p class="panel-subtitle">从 C 盘根目录开始，逐层展开 1GB 以上的文件夹。</p></div><button class="back-button" @click="openView('home')">返回概览</button></div>
+            <div class="analysis-toolbar"><button class="primary-button analysis-button" :disabled="busy" @click="analyzeDisk">{{ actionBusy === 'disk-analysis' ? '正在分析…' : '分析 1GB+ 文件夹' }}</button><span class="analysis-threshold">阈值：1 GB</span></div>
+            <p class="analysis-note">只显示 ≥1GB 的文件夹；每个分支会继续递归，直到下一层全部小于 1GB。每个目录只扫描一次。</p>
+            <div v-if="analysisRows.length" class="analysis-tree"><div v-for="entry in analysisRows" :key="entry.path" class="analysis-tree-row"><span class="analysis-tree-path" :style="{ paddingLeft: `${entry.depth * 22}px` }"><span class="analysis-branch" :class="{ 'analysis-branch-root': entry.depth === 0 }"></span>{{ entry.path }}</span><b>{{ formatBytes(entry.bytes) }}</b></div></div><div v-else class="analysis-empty">点击“分析 1GB+ 文件夹”开始定位占用空间。</div>
+          </section>
+        </template>
+      </main>
+    </div>
     <footer class="footer">Clean Safe Plus <span>·</span> Tauri 2.11+ / Vue 3.5</footer>
   </div>
 </template>

@@ -64,8 +64,19 @@ if not exist "%APP_EXE%" (
     echo [ERROR] Portable EXE was not found: %APP_EXE%
     goto :fail
 )
-del /q "%RELEASE_DIR%\CleanSafePlus.exe" >nul 2>&1
+if exist "%RELEASE_DIR%\CleanSafePlus.exe" (
+    del /f /q "%RELEASE_DIR%\CleanSafePlus.exe" >nul 2>&1
+    if exist "%RELEASE_DIR%\CleanSafePlus.exe" (
+        echo [ERROR] CleanSafePlus.exe is still running or locked.
+        echo Close the running app and run build.bat again.
+        goto :fail
+    )
+)
 copy /y "%APP_EXE%" "%RELEASE_DIR%\CleanSafePlus.exe" >nul
+if errorlevel 1 (
+    echo [ERROR] Failed to copy the portable EXE into releases.
+    goto :fail
+)
 
 echo [OK] Portable EXE build completed.
 echo Output: %RELEASE_DIR%

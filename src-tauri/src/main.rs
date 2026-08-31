@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env,
     fs,
     path::{Path, PathBuf},
@@ -72,12 +72,12 @@ struct ActionResponse {
 struct DiskEntry {
     path: String,
     bytes: u64,
+    children: Vec<DiskEntry>,
 }
 
 #[derive(Serialize)]
 struct DiskAnalysis {
-    focus: Vec<DiskEntry>,
-    top: Vec<DiskEntry>,
+    folders: Vec<DiskEntry>,
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -234,6 +234,27 @@ fn directory_size(path: &Path) -> u64 {
             total = total.saturating_add(directory_size(&entry.path()));
         }
     }
+    total
+}
+
+fn directory_size_cached(path: &Path, cache: &mut HashMap<PathBuf, u64>) -> u64 {
+    let key = path.to_path_buf();
+    if let Some(size) = cache.get(&key) { return *size; }
+    let Ok(entries) = fs::read_dir(path) else {
+        cache.insert(key, 0);
+        return 0;
+    };
+    let mut total = 0u64;
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else { continue; };
+        if file_type.is_symlink() { continue; }
+        if file_type.is_file() {
+            if let Ok(metadata) = entry.metadata() { total = total.saturating_add(metadata.len()); }
+        } else if file_type.is_dir() {
+            total = total.saturating_add(directory_size_cached(&entry.path(), cache));
+        }
+    }
+    cache.insert(key, total);
     total
 }
 
@@ -676,19 +697,45 @@ fn clean_targets(target_ids: Vec<String>, run_windows_cleanup: bool) -> Result<C
     Ok(CleanupReport { free_before, free_after, freed_bytes: free_after.saturating_sub(free_before), processed, windows_cleanup_ran, warnings })
 }
 
+fn disk_root_paths() -> Vec<PathBuf> {
+    fs::read_dir(r"C:\")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.path())
+        .collect()
+}
+
+const LARGE_FOLDER_THRESHOLD: u64 = 1024 * 1024 * 1024;
+
+fn large_folder_node(path: &Path, bytes: u64, cache: &mut HashMap<PathBuf, u64>) -> DiskEntry {
+    let mut children = fs::read_dir(path)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let child_path = entry.path();
+            let file_type = entry.file_type().ok()?;
+            if !file_type.is_dir() || file_type.is_symlink() { return None; }
+            let child_bytes = directory_size_cached(&child_path, cache);
+            (child_bytes >= LARGE_FOLDER_THRESHOLD).then(|| large_folder_node(&child_path, child_bytes, cache))
+        })
+        .collect::<Vec<_>>();
+    children.sort_by(|left, right| right.bytes.cmp(&left.bytes));
+    DiskEntry { path: path.display().to_string(), bytes, children }
+}
+
 #[tauri::command]
 fn analyze_disk() -> Result<DiskAnalysis, String> {
-    let user = env_path("USERPROFILE").unwrap_or_else(|| PathBuf::from(r"C:\Users"));
-    let system = env_path("SystemRoot").unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
-    let focus_paths = [user.join("AppData"), PathBuf::from(r"C:\ProgramData"), system, PathBuf::from(r"C:\System Volume Information")];
-    let focus = focus_paths.iter().filter(|path| path.is_dir()).map(|path| DiskEntry { path: path.display().to_string(), bytes: directory_size(path) }).collect();
-    let mut top = Vec::new();
-    if let Ok(entries) = fs::read_dir(r"C:\") {
-        for entry in entries.flatten().filter(|entry| entry.path().is_dir()) { top.push(DiskEntry { path: entry.path().display().to_string(), bytes: directory_size(&entry.path()) }); }
-    }
-    top.sort_by(|left, right| right.bytes.cmp(&left.bytes));
-    top.truncate(12);
-    Ok(DiskAnalysis { focus, top })
+    let root_paths = disk_root_paths();
+    let mut cache = HashMap::new();
+    let mut folders = root_paths.into_iter().filter_map(|path| {
+        let bytes = directory_size_cached(&path, &mut cache);
+        (bytes >= LARGE_FOLDER_THRESHOLD).then(|| large_folder_node(&path, bytes, &mut cache))
+    }).collect::<Vec<_>>();
+    folders.sort_by(|left, right| right.bytes.cmp(&left.bytes));
+    Ok(DiskAnalysis { folders })
 }
 
 fn main() {

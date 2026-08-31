@@ -54,7 +54,7 @@ node_modules\.bin\tauri.cmd build --no-bundle
 - `clean_targets`：仅按白名单 ID 执行清理
 - `run_maintenance`：执行应用缓存、系统维护和网络修复操作
 - `set_pagefile`：设置系统自动、自定义或关闭页面文件
-- `analyze_disk`：分析重点目录和 C 盘 Top 12 大目录
+- `analyze_disk`：递归列出 C 盘中达到 1GB 的文件夹，子文件夹低于 1GB 时停止展开
 
 独立的 `cleanup_c_drive.ps1` 仍保留作为无界面备用工具。它默认只预览：
 
