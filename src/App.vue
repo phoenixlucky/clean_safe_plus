@@ -15,6 +15,8 @@ const lastReport = ref(null)
 const lastAction = ref(null)
 const analysis = ref(null)
 const activeView = ref('home')
+const analysisCopyStatus = ref('')
+const analysisOpenPath = ref('')
 
 const navItems = [
   { id: 'home', label: '电脑', hint: '概览', mark: 'C' },
@@ -74,6 +76,53 @@ function formatBytes(bytes) {
 function formatPath(path) {
   if (!path) return ''
   return path.replace(/^C:\\Users\\[^\\]+/i, '~')
+}
+
+async function copyAnalysis() {
+  if (!analysisRows.value.length) return
+
+  const lines = analysisRows.value.map(({ path, bytes, depth }) => {
+    return `${'  '.repeat(depth)}${path}\t${formatBytes(bytes)}`
+  })
+  const text = ['C 盘 1GB 以上文件夹分析结果', '阈值：1 GB', '', ...lines].join('\n')
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.focus()
+      textarea.select()
+      const copied = document.execCommand('copy')
+      textarea.remove()
+      if (!copied) throw new Error('clipboard unavailable')
+    }
+    analysisCopyStatus.value = `已复制 ${analysisRows.value.length} 项`
+    window.setTimeout(() => {
+      analysisCopyStatus.value = ''
+    }, 2400)
+  } catch {
+    analysisCopyStatus.value = '复制失败，请重试'
+  }
+}
+
+async function openAnalysisFolder(path) {
+  if (!path || analysisOpenPath.value) return
+
+  analysisOpenPath.value = path
+  clearMessages()
+  try {
+    await invoke('open_path', { path })
+    notice.value = `已打开：${path}`
+  } catch (err) {
+    error.value = `无法打开文件夹：${String(err)}`
+  } finally {
+    analysisOpenPath.value = ''
+  }
 }
 
 function setDefaultSelection() {
@@ -182,6 +231,8 @@ async function analyzeDisk() {
   actionBusy.value = 'disk-analysis'
   clearMessages()
   analysis.value = null
+  analysisCopyStatus.value = ''
+  analysisOpenPath.value = ''
   try {
     analysis.value = await invoke('analyze_disk')
     notice.value = '1GB 以上文件夹分析完成。'
@@ -271,9 +322,9 @@ onMounted(scan)
         <template v-else>
           <section class="panel workspace-view analysis-view">
             <div class="workspace-heading"><div><div class="section-kicker">DISK ANALYSIS</div><h2>磁盘分析</h2><p class="panel-subtitle">从 C 盘根目录开始，逐层展开 1GB 以上的文件夹。</p></div><button class="back-button" @click="openView('home')">返回概览</button></div>
-            <div class="analysis-toolbar"><button class="primary-button analysis-button" :disabled="busy" @click="analyzeDisk">{{ actionBusy === 'disk-analysis' ? '正在分析…' : '分析 1GB+ 文件夹' }}</button><span class="analysis-threshold">阈值：1 GB</span></div>
+            <div class="analysis-toolbar"><div class="analysis-actions"><button class="primary-button analysis-button" :disabled="busy" @click="analyzeDisk">{{ actionBusy === 'disk-analysis' ? '正在分析…' : '分析 1GB+ 文件夹' }}</button><button class="hero-secondary analysis-copy-button" :disabled="busy || !analysisRows.length" @click="copyAnalysis">一键复制结果</button></div><span class="analysis-threshold">阈值：1 GB</span><span v-if="analysisCopyStatus" class="analysis-copy-status" aria-live="polite">{{ analysisCopyStatus }}</span></div>
             <p class="analysis-note">只显示 ≥1GB 的文件夹；每个分支会继续递归，直到下一层全部小于 1GB。每个目录只扫描一次。</p>
-            <div v-if="analysisRows.length" class="analysis-tree"><div v-for="entry in analysisRows" :key="entry.path" class="analysis-tree-row"><span class="analysis-tree-path" :style="{ paddingLeft: `${entry.depth * 22}px` }"><span class="analysis-branch" :class="{ 'analysis-branch-root': entry.depth === 0 }"></span>{{ entry.path }}</span><b>{{ formatBytes(entry.bytes) }}</b></div></div><div v-else class="analysis-empty">点击“分析 1GB+ 文件夹”开始定位占用空间。</div>
+            <div v-if="analysisRows.length" class="analysis-tree"><div v-for="entry in analysisRows" :key="entry.path" class="analysis-tree-row"><span class="analysis-tree-path" :style="{ paddingLeft: `${entry.depth * 22}px` }"><span class="analysis-branch" :class="{ 'analysis-branch-root': entry.depth === 0 }"></span>{{ entry.path }}</span><b>{{ formatBytes(entry.bytes) }}</b><button class="analysis-open-button" :disabled="busy || Boolean(analysisOpenPath)" title="在 Windows 资源管理器中打开" @click="openAnalysisFolder(entry.path)">{{ analysisOpenPath === entry.path ? '打开中…' : '打开' }}</button></div></div><div v-else class="analysis-empty">点击“分析 1GB+ 文件夹”开始定位占用空间。</div>
           </section>
         </template>
       </main>

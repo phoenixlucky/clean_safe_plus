@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output},
 };
+use tauri::Manager;
 
 #[derive(Clone)]
 enum TargetMode {
@@ -738,9 +739,36 @@ fn analyze_disk() -> Result<DiskAnalysis, String> {
     Ok(DiskAnalysis { folders })
 }
 
+#[cfg(windows)]
+#[tauri::command]
+fn open_path(path: String) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    if !target.is_dir() {
+        return Err(format!("文件夹不存在：{path}"));
+    }
+
+    Command::new("explorer.exe")
+        .arg(&target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("启动资源管理器失败：{error}"))
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn open_path(_path: String) -> Result<(), String> {
+    Err("打开文件夹目前仅支持 Windows".to_string())
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![scan_cleanup, clean_targets, run_maintenance, set_pagefile, analyze_disk])
+        .setup(|app| {
+            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))?;
+            let window = app.get_webview_window("main").ok_or("main window not found")?;
+            window.set_icon(icon)?;
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![scan_cleanup, clean_targets, run_maintenance, set_pagefile, analyze_disk, open_path])
         .run(tauri::generate_context!())
         .expect("error while running Clean Safe Plus");
 }
