@@ -10,8 +10,10 @@
 - 支持 Chrome、Edge、Firefox、微信、VSCode、NVIDIA/AMD 和开发工具缓存
 - 支持 pip、npm、conda、Python `__pycache__` 与 Docker 未使用资源清理
 - 支持 Claude、Cursor、Windsurf、Trae、Kiro、ChatGPT、LM Studio 等 AI 客户端的可重建缓存和日志清理
+- 支持清理 `build.bat` 产生的 `dist`、Vite 缓存、Tauri 中间产物，保留 `releases\CleanSafePlus.exe`
 - 支持关闭休眠、服务优化、网络/VPN/TUN 修复、页面文件设置
 - 支持 C 盘大目录分析、DISM 组件清理和卷影副本空间限制
+- 支持 C 盘大目录分析的两次对比，以及分析结果 JSON 导入/导出
 - 可选删除 Hermes 整个本地数据目录（需要单独勾选）
 - 可选调用 Windows 自带磁盘清理
 - 正在使用或受保护的文件自动跳过，不强制结束进程
@@ -67,6 +69,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\cleanup_c_drive.ps1
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\cleanup_c_drive.ps1 -Apply
+```
+
+清理本项目一键打包产生的可重建中间产物（不会删除 `releases\CleanSafePlus.exe`）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\cleanup_c_drive.ps1 -Apply -CleanBuildArtifacts
 ```
 
 删除 Hermes 整个本地数据目录时，显式追加 `-RemoveHermes`。运行 Windows 自带清理时，追加 `-RunWindowsCleanup`。

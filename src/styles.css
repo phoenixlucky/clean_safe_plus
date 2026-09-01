@@ -50,6 +50,9 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 h1, h2, h3, p { margin: 0; }
 h1 { max-width: 500px; color: #202631; font-size: clamp(34px, 4vw, 54px); line-height: 1.08; letter-spacing: -.06em; }
 .hero-copy { max-width: 460px; margin-top: 16px; color: #7d8d99; font-size: 13px; line-height: 1.7; }
+.hero-motto { max-width: 460px; display: flex; flex-direction: column; gap: 4px; margin-top: 16px; padding-left: 12px; color: #526571; border-left: 3px solid #8fc6d4; }
+.hero-motto span { font-family: Georgia, 'Times New Roman', serif; font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+.hero-motto small { color: #9aa8b1; font-size: 9px; }
 .hero-points { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 19px; color: #6c7b86; font-size: 10px; }
 .hero-points span { padding: 7px 10px; border: 1px solid rgba(211, 227, 237, .9); border-radius: 15px; background: rgba(255,255,255,.54); }
 .hero-buttons { gap: 12px; margin-top: 24px; }
@@ -166,9 +169,30 @@ h1 { max-width: 500px; color: #202631; font-size: clamp(34px, 4vw, 54px); line-h
 .analysis-actions { display: flex; align-items: center; gap: 10px; }
 .analysis-button { min-width: 140px; margin-top: 0; }
 .analysis-copy-button { min-height: 40px; }
+.analysis-import-input { display: none; }
 .analysis-threshold { padding: 7px 10px; color: #4b8aa0; border-radius: 14px; background: #eaf5f9; font-size: 10px; font-weight: 800; }
 .analysis-copy-status { color: #4d9a78; font-size: 10px; font-weight: 700; }
+.analysis-snapshot-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 16px; margin-top: 12px; padding: 10px 12px; border: 1px solid #e4edf2; border-radius: 10px; background: #fbfdfe; }
+.analysis-snapshot-status { display: flex; align-items: center; gap: 7px; color: #687783; font-size: 10px; }
+.analysis-text-button, .analysis-clear-button, .analysis-view-button { min-height: 25px; padding: 0 8px; color: #4c8da4; border: 1px solid #d4e7ed; border-radius: 7px; background: #f5fbfd; font-size: 9px; font-weight: 800; }
+.analysis-text-button:hover:not(:disabled), .analysis-view-button:hover:not(:disabled) { color: #fff; border-color: #4c9bb6; background: #4c9bb6; }
+.analysis-clear-button { min-width: 24px; padding: 0; color: #b4776c; border-color: #efd7d1; background: #fff8f6; font-size: 15px; line-height: 1; }
+.analysis-view-button { margin-left: auto; }
+.analysis-view-button.active { color: #fff; border-color: #4c9bb6; background: #4c9bb6; }
 .analysis-note { margin-top: 9px; color: #91a0aa; font-size: 10px; line-height: 1.5; }
+.comparison-view { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; margin-top: 12px; }
+.comparison-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.comparison-summary > div { min-width: 0; padding: 9px 11px; border: 1px solid #e4edf2; border-radius: 9px; background: #fbfdfe; }
+.comparison-summary span, .comparison-summary b { display: block; }
+.comparison-summary span { color: #96a3ab; font-size: 9px; }
+.comparison-summary b { margin-top: 5px; color: #52616c; font-size: 12px; white-space: nowrap; }
+.comparison-increase { color: #bd6c4f !important; }
+.comparison-decrease { color: #47936d !important; }
+.comparison-tree { margin-top: 12px; }
+.comparison-header, .comparison-tree-row { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+.comparison-header { display: grid; align-items: center; gap: 15px; min-height: 28px; padding: 0 9px 0 0; color: #9aa7af; border-bottom: 1px solid #edf2f5; font-size: 9px; text-align: right; }
+.comparison-header span:first-child { text-align: left; }
+.comparison-tree-row > span:not(.analysis-tree-path), .comparison-tree-row > b { min-width: 68px; color: #687681; font-size: 10px; text-align: right; white-space: nowrap; }
 .analysis-tree { min-height: 0; flex: 1 1 auto; margin-top: 16px; padding-right: 5px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #c5dfe9 transparent; }
 .analysis-tree-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 15px; min-height: 35px; padding: 5px 9px 5px 0; border-bottom: 1px solid #edf2f5; }
 .analysis-tree-row:hover { background: #f7fbfd; }
@@ -227,5 +251,10 @@ h1 { max-width: 500px; color: #202631; font-size: clamp(34px, 4vw, 54px); line-h
   .home-bottom { display: none; }
   .workspace-view { padding: 16px 14px; }
   .tool-grid { grid-template-columns: 1fr; }
+  .analysis-snapshot-toolbar { align-items: flex-start; flex-direction: column; }
+  .analysis-view-button { margin-left: 0; }
+  .comparison-summary { grid-template-columns: 1fr; }
+  .comparison-tree { overflow-x: auto; }
+  .comparison-header, .comparison-tree-row { min-width: 570px; }
   .footer { display: none; }
 }

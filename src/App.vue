@@ -14,9 +14,13 @@ const notice = ref('')
 const lastReport = ref(null)
 const lastAction = ref(null)
 const analysis = ref(null)
+const comparisonFirst = ref(null)
+const comparisonSecond = ref(null)
+const analysisMode = ref('current')
 const activeView = ref('home')
 const analysisCopyStatus = ref('')
 const analysisOpenPath = ref('')
+const analysisImportInput = ref(null)
 
 const navItems = [
   { id: 'home', label: '电脑', hint: '概览', icon: 'computer' },
@@ -31,6 +35,7 @@ const pagefileMaximum = ref(16384)
 
 const cleanupTools = [
   { id: 'ai-work-cache', label: 'AI 工作缓存', description: 'Claude、Cursor、Windsurf、Trae、Kiro、ChatGPT 等缓存与日志', confirm: '建议先退出 AI 应用。这里只清理可重建缓存和日志，不会删除对话、配置、模型或项目文件。确认继续？' },
+  { id: 'build-artifacts', label: '打包构建垃圾', description: '清理 dist、Tauri 中间产物和 Vite 缓存，保留 releases 最终 EXE', confirm: '这里只清理可重新生成的打包中间产物，不会删除 releases 中的最终 EXE。确认继续？' },
   { id: 'browser-cache', label: '浏览器缓存', description: 'Chrome、Edge、Firefox 缓存与启动缓存', confirm: '将关闭浏览器后清理缓存文件，是否继续？' },
   { id: 'wechat-cache', label: '微信缓存', description: 'FileStorage 与消息附件/图片/视频缓存', confirm: '微信目录可能包含本地媒体文件。请先退出微信，确认继续清理？' },
   { id: 'vscode-cache', label: 'VSCode 缓存', description: 'Cache、GPUCache、日志和扩展安装缓存', confirm: '建议先退出 VSCode。确认清理 VSCode 缓存？' },
@@ -56,16 +61,51 @@ const selectedHermes = computed(() => selected.value.has('hermes'))
 const safeTargetCount = computed(() => targets.value.filter((target) => target.safe).length)
 const busy = computed(() => loading.value || cleaning.value || Boolean(actionBusy.value))
 const analysisRows = computed(() => {
+  return flattenAnalysis(analysis.value)
+})
+const comparisonRows = computed(() => {
+  if (!comparisonFirst.value || !comparisonSecond.value) return []
+
+  const first = new Map(flattenAnalysis(comparisonFirst.value).map((row) => [row.path, row]))
+  const second = new Map(flattenAnalysis(comparisonSecond.value).map((row) => [row.path, row]))
+  const paths = new Set([...first.keys(), ...second.keys()])
+
+  return [...paths]
+    .map((path) => {
+      const before = first.get(path)
+      const after = second.get(path)
+      const beforeBytes = before?.bytes ?? 0
+      const afterBytes = after?.bytes ?? 0
+      return {
+        path,
+        depth: after?.depth ?? before?.depth ?? 0,
+        beforeBytes,
+        afterBytes,
+        deltaBytes: afterBytes - beforeBytes,
+      }
+    })
+    .filter((row) => row.deltaBytes !== 0)
+    .sort((left, right) => Math.abs(right.deltaBytes) - Math.abs(left.deltaBytes))
+})
+const comparisonTotals = computed(() => {
+  const sumRoots = (snapshot) => (snapshot?.folders ?? []).reduce((total, folder) => total + (folder.bytes ?? 0), 0)
+  const beforeBytes = sumRoots(comparisonFirst.value)
+  const afterBytes = sumRoots(comparisonSecond.value)
+  return { beforeBytes, afterBytes, deltaBytes: afterBytes - beforeBytes }
+})
+const comparisonAvailable = computed(() => Boolean(comparisonFirst.value && comparisonSecond.value))
+
+function flattenAnalysis(snapshot) {
   const rows = []
   const visit = (nodes, depth) => {
     for (const node of nodes ?? []) {
-      rows.push({ path: node.path, bytes: node.bytes, depth })
+      rows.push({ path: node.path, bytes: node.bytes ?? 0, depth })
       visit(node.children, depth + 1)
     }
   }
-  visit(analysis.value?.folders, 0)
+  visit(snapshot?.folders, 0)
   return rows
-})
+}
 
 function formatBytes(bytes) {
   if (!bytes || bytes < 1024) return '0 B'
@@ -77,6 +117,84 @@ function formatBytes(bytes) {
 function formatPath(path) {
   if (!path) return ''
   return path.replace(/^C:\\Users\\[^\\]+/i, '~')
+}
+
+function formatDelta(bytes) {
+  if (!bytes) return '0 B'
+  return `${bytes > 0 ? '+' : '-'}${formatBytes(Math.abs(bytes))}`
+}
+
+function cloneAnalysis(snapshot) {
+  return snapshot ? JSON.parse(JSON.stringify(snapshot)) : null
+}
+
+function normalizeAnalysis(value) {
+  if (!value || !Array.isArray(value.folders)) return null
+  const normalizeNodes = (nodes) => nodes.map((node) => {
+    if (!node || typeof node.path !== 'string' || typeof node.bytes !== 'number' || node.bytes < 0) return null
+    return { path: node.path, bytes: node.bytes, children: normalizeNodes(Array.isArray(node.children) ? node.children : []) }
+  }).filter(Boolean)
+  return { folders: normalizeNodes(value.folders) }
+}
+
+function saveComparisonSnapshot(slot) {
+  if (!analysis.value) return
+  const snapshot = cloneAnalysis(analysis.value)
+  if (slot === 'first') comparisonFirst.value = snapshot
+  else comparisonSecond.value = snapshot
+  analysisMode.value = comparisonAvailable.value ? 'comparison' : 'current'
+  notice.value = `已保存为第${slot === 'first' ? '一' : '二'}次分析结果。`
+}
+
+function clearComparisonSnapshot(slot) {
+  if (slot === 'first') comparisonFirst.value = null
+  else comparisonSecond.value = null
+  analysisMode.value = 'current'
+}
+
+function exportAnalysis() {
+  const payload = {
+    format: 'clean-safe-plus-disk-analysis',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    thresholdBytes: 1024 ** 3,
+    current: analysis.value,
+    first: comparisonFirst.value,
+    second: comparisonSecond.value,
+  }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `clean-safe-plus-disk-analysis-${new Date().toISOString().slice(0, 10)}.json`
+  link.click()
+  URL.revokeObjectURL(url)
+  notice.value = '分析结果已导出。'
+}
+
+function triggerImport() {
+  analysisImportInput.value?.click()
+}
+
+async function importAnalysis(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+
+  try {
+    const payload = JSON.parse(await file.text())
+    const current = normalizeAnalysis(payload.current ?? payload)
+    const first = normalizeAnalysis(payload.first)
+    const second = normalizeAnalysis(payload.second)
+    if (!current && !first && !second) throw new Error('invalid analysis')
+    analysis.value = current ?? second ?? first
+    comparisonFirst.value = first
+    comparisonSecond.value = second
+    analysisMode.value = first && second ? 'comparison' : 'current'
+    notice.value = '分析结果已导入。'
+  } catch {
+    error.value = '导入失败：文件不是有效的磁盘分析 JSON。'
+  }
 }
 
 async function copyAnalysis() {
@@ -194,7 +312,7 @@ async function runTool(tool) {
     const result = await invoke('run_maintenance', { action: tool.id })
     lastAction.value = result
     if (result.success) {
-      if (['ai-work-cache', 'browser-cache', 'vscode-cache', 'nvidia-cache', 'developer-cache', 'pycache', 'windows-cleanup'].includes(tool.id)) await scan()
+      if (['ai-work-cache', 'build-artifacts', 'browser-cache', 'vscode-cache', 'nvidia-cache', 'developer-cache', 'pycache', 'windows-cleanup'].includes(tool.id)) await scan()
     }
   } catch (err) {
     error.value = `${tool.label}失败：${String(err)}`
@@ -232,6 +350,7 @@ async function analyzeDisk() {
   actionBusy.value = 'disk-analysis'
   clearMessages()
   analysis.value = null
+  analysisMode.value = 'current'
   analysisCopyStatus.value = ''
   analysisOpenPath.value = ''
   try {
@@ -279,6 +398,7 @@ onMounted(scan)
                 <div class="eyebrow">电脑 · C 盘空间</div>
                 <h1>让 C 盘保持轻盈。</h1>
                 <p class="hero-copy">先扫描，再选择。安全清理缓存，同时保留桌面、下载和个人文档。</p>
+                <div class="hero-motto"><span>“故欲战，先安内也。”</span><small>《尉缭子·踵军令》</small></div>
                 <div class="hero-points"><span>✓ 保留个人文件</span><span>✓ 占用文件自动跳过</span></div>
                 <div class="hero-buttons"><button class="primary-button" :disabled="busy || !selected.size" @click="clean"><span v-if="cleaning" class="button-loader"></span><span v-else>清理加速</span><span v-if="!cleaning" class="button-arrow">→</span></button><button class="hero-secondary" @click="openView('tools')">更多工具</button></div>
               </div>
@@ -323,9 +443,10 @@ onMounted(scan)
         <template v-else>
           <section class="panel workspace-view analysis-view">
             <div class="workspace-heading"><div><div class="section-kicker">DISK ANALYSIS</div><h2>磁盘分析</h2><p class="panel-subtitle">从 C 盘根目录开始，逐层展开 1GB 以上的文件夹。</p></div><button class="back-button" @click="openView('home')">返回概览</button></div>
-            <div class="analysis-toolbar"><div class="analysis-actions"><button class="primary-button analysis-button" :disabled="busy" @click="analyzeDisk">{{ actionBusy === 'disk-analysis' ? '正在分析…' : '分析 1GB+ 文件夹' }}</button><button class="hero-secondary analysis-copy-button" :disabled="busy || !analysisRows.length" @click="copyAnalysis">一键复制结果</button></div><span class="analysis-threshold">阈值：1 GB</span><span v-if="analysisCopyStatus" class="analysis-copy-status" aria-live="polite">{{ analysisCopyStatus }}</span></div>
+            <div class="analysis-toolbar"><div class="analysis-actions"><button class="primary-button analysis-button" :disabled="busy" @click="analyzeDisk">{{ actionBusy === 'disk-analysis' ? '正在分析…' : '分析 1GB+ 文件夹' }}</button><button class="hero-secondary analysis-copy-button" :disabled="busy || !analysisRows.length" @click="copyAnalysis">一键复制结果</button><button class="hero-secondary analysis-copy-button" :disabled="busy || (!analysis && !comparisonAvailable)" @click="exportAnalysis">导出 JSON</button><button class="hero-secondary analysis-copy-button" :disabled="busy" @click="triggerImport">导入 JSON</button><input ref="analysisImportInput" class="analysis-import-input" type="file" accept="application/json,.json" @change="importAnalysis" /></div><span class="analysis-threshold">阈值：1 GB</span><span v-if="analysisCopyStatus" class="analysis-copy-status" aria-live="polite">{{ analysisCopyStatus }}</span></div>
+            <div class="analysis-snapshot-toolbar"><div class="analysis-snapshot-status"><span>第一次：{{ comparisonFirst ? '已保存' : '未保存' }}</span><button class="analysis-text-button" :disabled="busy || !analysis" @click="saveComparisonSnapshot('first')">保存当前</button><button v-if="comparisonFirst" class="analysis-clear-button" :disabled="busy" title="清除第一次分析结果" @click="clearComparisonSnapshot('first')">×</button></div><div class="analysis-snapshot-status"><span>第二次：{{ comparisonSecond ? '已保存' : '未保存' }}</span><button class="analysis-text-button" :disabled="busy || !analysis" @click="saveComparisonSnapshot('second')">保存当前</button><button v-if="comparisonSecond" class="analysis-clear-button" :disabled="busy" title="清除第二次分析结果" @click="clearComparisonSnapshot('second')">×</button></div><button v-if="comparisonAvailable" class="analysis-view-button" :class="{ active: analysisMode === 'comparison' }" :disabled="busy" @click="analysisMode = analysisMode === 'comparison' ? 'current' : 'comparison'">{{ analysisMode === 'comparison' ? '查看当前结果' : '查看两次对比' }}</button></div>
             <p class="analysis-note">只显示 ≥1GB 的文件夹；每个分支会继续递归，直到下一层全部小于 1GB。每个目录只扫描一次。</p>
-            <div v-if="analysisRows.length" class="analysis-tree"><div v-for="entry in analysisRows" :key="entry.path" class="analysis-tree-row"><span class="analysis-tree-path" :style="{ paddingLeft: `${entry.depth * 22}px` }"><span class="analysis-branch" :class="{ 'analysis-branch-root': entry.depth === 0 }"></span>{{ entry.path }}</span><b>{{ formatBytes(entry.bytes) }}</b><button class="analysis-open-button" :disabled="busy || Boolean(analysisOpenPath)" title="在 Windows 资源管理器中打开" @click="openAnalysisFolder(entry.path)">{{ analysisOpenPath === entry.path ? '打开中…' : '打开' }}</button></div></div><div v-else class="analysis-empty">点击“分析 1GB+ 文件夹”开始定位占用空间。</div>
+            <div v-if="analysisMode === 'comparison' && comparisonAvailable" class="comparison-view"><div class="comparison-summary"><div><span>第一次总计</span><b>{{ formatBytes(comparisonTotals.beforeBytes) }}</b></div><div><span>第二次总计</span><b>{{ formatBytes(comparisonTotals.afterBytes) }}</b></div><div><span>空间变化</span><b :class="comparisonTotals.deltaBytes > 0 ? 'comparison-increase' : 'comparison-decrease'">{{ formatDelta(comparisonTotals.deltaBytes) }}</b></div></div><div v-if="comparisonRows.length" class="analysis-tree comparison-tree"><div class="comparison-header"><span>文件夹</span><span>第一次</span><span>第二次</span><span>变化</span></div><div v-for="entry in comparisonRows" :key="entry.path" class="analysis-tree-row comparison-tree-row"><span class="analysis-tree-path" :style="{ paddingLeft: `${entry.depth * 22}px` }"><span class="analysis-branch" :class="{ 'analysis-branch-root': entry.depth === 0 }"></span>{{ entry.path }}</span><span>{{ formatBytes(entry.beforeBytes) }}</span><span>{{ formatBytes(entry.afterBytes) }}</span><b :class="entry.deltaBytes > 0 ? 'comparison-increase' : 'comparison-decrease'">{{ formatDelta(entry.deltaBytes) }}</b></div></div><div v-else class="analysis-empty">两次结果没有发现空间变化。</div></div><div v-else-if="analysisRows.length" class="analysis-tree"><div v-for="entry in analysisRows" :key="entry.path" class="analysis-tree-row"><span class="analysis-tree-path" :style="{ paddingLeft: `${entry.depth * 22}px` }"><span class="analysis-branch" :class="{ 'analysis-branch-root': entry.depth === 0 }"></span>{{ entry.path }}</span><b>{{ formatBytes(entry.bytes) }}</b><button class="analysis-open-button" :disabled="busy || Boolean(analysisOpenPath)" title="在 Windows 资源管理器中打开" @click="openAnalysisFolder(entry.path)">{{ analysisOpenPath === entry.path ? '打开中…' : '打开' }}</button></div></div><div v-else class="analysis-empty">点击“分析 1GB+ 文件夹”开始定位占用空间。</div>
           </section>
         </template>
       </main>

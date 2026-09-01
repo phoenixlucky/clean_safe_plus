@@ -15,7 +15,6 @@ enum TargetMode {
     Contents,
     Directory,
     FilesByPrefix(String),
-    RecursiveDirectoriesByName(String),
 }
 
 struct TargetSpec {
@@ -166,6 +165,40 @@ fn add_ai_app_cache_specs(specs: &mut Vec<TargetSpec>, app_id: &str, app_label: 
             root.join(relative),
         );
     }
+}
+
+fn project_root() -> Option<PathBuf> {
+    let mut candidate = env::current_exe().ok()?.parent()?.to_path_buf();
+    for _ in 0..5 {
+        if candidate.join("package.json").is_file() && candidate.join("src-tauri").is_dir() {
+            return Some(candidate);
+        }
+        let parent = candidate.parent()?.to_path_buf();
+        if parent == candidate { return None; }
+        candidate = parent;
+    }
+    None
+}
+
+fn build_artifact_specs() -> Vec<TargetSpec> {
+    let mut specs = Vec::new();
+    let Some(root) = project_root() else { return specs; };
+
+    add_contents(&mut specs, "build-dist", "前端打包产物（dist）", root.join("dist"));
+    add_contents(&mut specs, "build-vite-cache", "Vite 构建缓存", root.join("node_modules/.vite"));
+    add_contents(&mut specs, "build-tauri-gen", "Tauri 生成文件", root.join("src-tauri/gen"));
+    add_contents(&mut specs, "build-tauri-debug", "Tauri Debug 构建产物", root.join("src-tauri/target/debug"));
+    for (id, relative, label) in [
+        ("build-tauri-release-build", "src-tauri/target/release/build", "Tauri Release 构建脚本产物"),
+        ("build-tauri-release-deps", "src-tauri/target/release/deps", "Tauri Release 依赖产物"),
+        ("build-tauri-release-fingerprint", "src-tauri/target/release/.fingerprint", "Tauri Release 指纹缓存"),
+        ("build-tauri-release-incremental", "src-tauri/target/release/incremental", "Tauri Release 增量缓存"),
+        ("build-tauri-release-examples", "src-tauri/target/release/examples", "Tauri Release 示例产物"),
+        ("build-tauri-release-bundle", "src-tauri/target/release/bundle", "Tauri 安装包构建产物"),
+    ] {
+        add_contents(&mut specs, id, label, root.join(relative));
+    }
+    specs
 }
 
 fn target_specs() -> Vec<TargetSpec> {
@@ -363,11 +396,6 @@ fn spec_size(spec: &TargetSpec) -> u64 {
             matching_files(&spec.path, prefix, &mut files);
             files.iter().filter_map(|path| fs::metadata(path).ok()).map(|metadata| metadata.len()).sum()
         }
-        TargetMode::RecursiveDirectoriesByName(name) => {
-            let mut directories = Vec::new();
-            matching_directories(&spec.path, name, &mut directories);
-            directories.iter().map(|path| directory_size(path)).sum()
-        }
     }
 }
 
@@ -386,12 +414,6 @@ fn clear_spec(spec: &TargetSpec) -> (u64, u64, u64) {
             let mut files = Vec::new();
             matching_files(&spec.path, prefix, &mut files);
             for file in files { if remove_entry(&file).is_err() { skipped += 1; } }
-        }
-        TargetMode::RecursiveDirectoriesByName(name) => {
-            let mut directories = Vec::new();
-            matching_directories(&spec.path, name, &mut directories);
-            directories.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
-            for directory in directories { if remove_entry(&directory).is_err() { skipped += 1; } }
         }
     }
     let remaining = spec_size(spec);
@@ -495,14 +517,14 @@ fn format_bytes(bytes: u64) -> String {
     format!("{value:.2} {}", units[index])
 }
 
-fn clear_matching_targets<F>(matcher: F, group: &str) -> ActionResponse
+fn clear_specs<I>(specs: I, group: &str) -> ActionResponse
 where
-    F: Fn(&TargetSpec) -> bool,
+    I: IntoIterator<Item = TargetSpec>,
 {
     let mut details = Vec::new();
     let mut warnings = Vec::new();
     let mut freed = 0u64;
-    for spec in target_specs().into_iter().filter(matcher) {
+    for spec in specs {
         if !spec.path.exists() { continue; }
         let (bytes, _, skipped) = clear_spec(&spec);
         freed = freed.saturating_add(bytes);
@@ -511,6 +533,13 @@ where
     }
     details.insert(0, format!("释放约 {}", format_bytes(freed)));
     ActionResponse { success: true, message: format!("{group}清理完成"), details, warnings }
+}
+
+fn clear_matching_targets<F>(matcher: F, group: &str) -> ActionResponse
+where
+    F: Fn(&TargetSpec) -> bool,
+{
+    clear_specs(target_specs().into_iter().filter(matcher), group)
 }
 
 fn close_processes(processes: &[&str]) {
@@ -575,18 +604,49 @@ fn developer_cache_action() -> ActionResponse {
     response
 }
 
-fn pycache_action() -> ActionResponse {
-    let mut specs = Vec::new();
-    if let Some(user) = env_path("USERPROFILE") {
-        specs.push(TargetSpec { id: "pycache-user".to_string(), label: "__pycache__ under user profile".to_string(), path: user, mode: TargetMode::RecursiveDirectoriesByName("__pycache__".to_string()), safe: true });
-    }
-    if let Some(local) = env_path("LOCALAPPDATA") {
-        specs.push(TargetSpec { id: "pycache-local".to_string(), label: "__pycache__ under LocalAppData".to_string(), path: local, mode: TargetMode::RecursiveDirectoriesByName("__pycache__".to_string()), safe: true });
-    }
+fn is_python_cache_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.eq_ignore_ascii_case("pyc") || extension.eq_ignore_ascii_case("pyo"))
+        .unwrap_or(false)
+}
+
+fn clear_python_cache_directory(path: &Path) -> (u64, u64) {
     let mut freed = 0u64;
     let mut skipped = 0u64;
-    for spec in specs { let (bytes, _, count) = clear_spec(&spec); freed = freed.saturating_add(bytes); skipped = skipped.saturating_add(count); }
-    ActionResponse { success: true, message: "__pycache__ 清理完成".to_string(), details: vec![format!("释放约 {}", format_bytes(freed))], warnings: if skipped > 0 { vec![format!("有 {skipped} 个目录被占用或受保护，已跳过")] } else { Vec::new() } }
+    let Ok(entries) = fs::read_dir(path) else { return (freed, 1); };
+
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        let Ok(file_type) = entry.file_type() else { continue; };
+        if file_type.is_symlink() || !file_type.is_file() || !is_python_cache_file(&entry_path) { continue; }
+        let bytes = entry.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+        if fs::remove_file(&entry_path).is_ok() { freed = freed.saturating_add(bytes); }
+        else { skipped += 1; }
+    }
+
+    if let Ok(mut remaining) = fs::read_dir(path) {
+        if remaining.next().is_none() && fs::remove_dir(path).is_err() { skipped += 1; }
+    }
+    (freed, skipped)
+}
+
+fn pycache_action() -> ActionResponse {
+    let mut directories = Vec::new();
+    for root in [env_path("USERPROFILE"), env_path("LOCALAPPDATA")].into_iter().flatten() {
+        matching_directories(&root, "__pycache__", &mut directories);
+    }
+    directories.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+    directories.dedup();
+
+    let mut freed = 0u64;
+    let mut skipped = 0u64;
+    for directory in directories {
+        let (bytes, count) = clear_python_cache_directory(&directory);
+        freed = freed.saturating_add(bytes);
+        skipped = skipped.saturating_add(count);
+    }
+    ActionResponse { success: true, message: "__pycache__ 清理完成".to_string(), details: vec![format!("释放约 {}", format_bytes(freed))], warnings: if skipped > 0 { vec![format!("有 {skipped} 个文件或目录被占用、受保护，或无法删除，已跳过")] } else { Vec::new() } }
 }
 
 fn ai_work_cache_action() -> ActionResponse {
@@ -604,6 +664,18 @@ fn ai_work_cache_action() -> ActionResponse {
         },
         "AI 工作缓存",
     )
+}
+
+fn build_artifact_action() -> ActionResponse {
+    if project_root().is_none() {
+        return ActionResponse {
+            success: false,
+            message: "未识别当前项目构建目录".to_string(),
+            details: Vec::new(),
+            warnings: vec!["请在项目生成的开发版或 releases 目录中运行此操作".to_string()],
+        };
+    }
+    clear_specs(build_artifact_specs(), "打包构建垃圾")
 }
 
 fn service_and_registry_optimization() -> ActionResponse {
@@ -682,6 +754,7 @@ fn run_maintenance(action: String) -> Result<ActionResponse, String> {
             clear_matching_targets(|spec| spec.id.starts_with("chrome-") || spec.id.starts_with("edge-") || spec.id.starts_with("firefox-"), "浏览器缓存")
         }
         "ai-work-cache" => ai_work_cache_action(),
+        "build-artifacts" => build_artifact_action(),
         "wechat-cache" => {
             close_processes(&["WeChat.exe", "Weixin.exe"]);
             let mut details = Vec::new();
@@ -750,7 +823,7 @@ fn free_space_bytes() -> Result<u64, String> { Err("This client currently suppor
 fn scan_cleanup() -> Result<ScanResponse, String> {
     let targets = target_specs().into_iter().filter(|spec| spec.path.is_dir()).map(|spec| {
         let bytes = spec_size(&spec);
-        let kind = match &spec.mode { TargetMode::Contents => "contents", TargetMode::Directory => "directory", TargetMode::FilesByPrefix(_) => "file pattern", TargetMode::RecursiveDirectoriesByName(_) => "recursive directory pattern" };
+        let kind = match &spec.mode { TargetMode::Contents => "contents", TargetMode::Directory => "directory", TargetMode::FilesByPrefix(_) => "file pattern" };
         CleanupTarget { id: spec.id, label: spec.label, path: spec.path.display().to_string(), bytes, safe: spec.safe, kind: kind.to_string() }
     }).collect();
     Ok(ScanResponse { free_bytes: free_space_bytes()?, targets })

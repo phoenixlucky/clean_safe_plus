@@ -7,7 +7,10 @@ param(
     [switch]$RemoveHermes,
 
     # Run Windows Disk Cleanup default safe items.
-    [switch]$RunWindowsCleanup
+    [switch]$RunWindowsCleanup,
+
+    # Remove rebuildable artifacts from this project's one-click packaging.
+    [switch]$CleanBuildArtifacts
 )
 
 Set-StrictMode -Version Latest
@@ -124,6 +127,23 @@ if (Test-Path -LiteralPath $chatgptPackages -PathType Container) {
     }
 }
 
+if ($CleanBuildArtifacts) {
+    Add-ContentsTarget -Path (Join-Path $PSScriptRoot 'dist') -Label 'Frontend build output (dist)'
+    Add-ContentsTarget -Path (Join-Path $PSScriptRoot 'node_modules\.vite') -Label 'Vite build cache'
+    Add-ContentsTarget -Path (Join-Path $PSScriptRoot 'src-tauri\gen') -Label 'Tauri generated files'
+    Add-ContentsTarget -Path (Join-Path $PSScriptRoot 'src-tauri\target\debug') -Label 'Tauri Debug build output'
+    foreach ($relative in @(
+        'src-tauri\target\release\build',
+        'src-tauri\target\release\deps',
+        'src-tauri\target\release\.fingerprint',
+        'src-tauri\target\release\incremental',
+        'src-tauri\target\release\examples',
+        'src-tauri\target\release\bundle'
+    )) {
+        Add-ContentsTarget -Path (Join-Path $PSScriptRoot $relative) -Label "Tauri packaging intermediate ($relative)"
+    }
+}
+
 # The state directory name may change; only target playwright-mcp\cache below it.
 $reasonixStateRoot = Join-Path $env:APPDATA 'reasonix\mcp-state'
 if (Test-Path -LiteralPath $reasonixStateRoot -PathType Container) {
@@ -141,6 +161,9 @@ Write-Host "C drive cleanup: $mode" -ForegroundColor Cyan
 Write-Host 'Only rebuildable temp files, caches, and logs are included by default.'
 if ($RemoveHermes -and -not $Apply) {
     Write-Warning '-RemoveHermes was supplied without -Apply; Hermes will only be shown, not removed.'
+}
+if ($CleanBuildArtifacts -and -not $Apply) {
+    Write-Warning '-CleanBuildArtifacts was supplied without -Apply; build artifacts will only be shown, not removed.'
 }
 Write-Host ''
 
@@ -195,6 +218,7 @@ if (-not $Apply) {
     Write-Host ('Estimated cleanup: {0}. To apply:' -f (Format-Bytes $estimatedBefore))
     Write-Host '  powershell -NoProfile -ExecutionPolicy Bypass -File .\cleanup_c_drive.ps1 -Apply'
     Write-Host 'To remove the whole Hermes local data directory, also add: -RemoveHermes'
+    Write-Host 'To remove this project''s rebuildable packaging artifacts, also add: -CleanBuildArtifacts'
 }
 if ($failed -gt 0) {
     Write-Warning ("Skipped {0} items because they were locked or protected. Close related apps and retry." -f $failed)

@@ -11,8 +11,11 @@
 - 命令行版新增「设置虚拟内存（页面文件）」子项：支持系统自动管理 / 自定义大小（可选盘符）/ 无分页文件，修改后需重启生效
 - 重构为两级菜单：先选择「清理类 / 设置类 / 分析类」，再选择具体子项，执行后返回菜单可继续操作
 - 新增「AI 工作缓存」清理：覆盖 Claude、Cursor、Windsurf、Trae、Kiro、ChatGPT、LM Studio 等客户端的可重建缓存、扩展下载缓存和日志；不处理对话、配置、模型或项目文件
+- 新增「打包构建垃圾」清理：清理 `build.bat` 生成的 `dist`、Vite 缓存和 Tauri 中间产物，保留 `releases\CleanSafePlus.exe`
+- 磁盘分析新增两次扫描对比及 JSON 导入/导出，可按文件夹查看空间增减
 
 ### 修复
+- 修复 `__pycache__` 清理空间统计异常：现在只删除 `.pyc/.pyo`，并仅按成功删除的文件大小计入释放空间，避免显示不可信的超大数值
 - 虚拟内存自定义大小：创建分页文件时 `InitialSize`/`MaximumSize` 必须以 `uint32` 类型写入（`Win32_PageFileSetting` 的 CIM 类型为 UInt32），否则 `New-CimInstance` 报「属性"InitialSize"的类型不匹配」且仍误报成功；设置失败时改为提示失败而非「已设置」
 - 微信缓存清理「未找到缓存目录」：新增读取微信 3.x 注册表自定义保存路径（`HKCU\Software\Tencent\WeChat\FileSavePath`），并支持微信 4.x 新目录结构（`xwechat_files\<wxid>_*\msg\attach|file|image|video`，无 `FileStorage`）；命令行版找不到缓存时可直接输入缓存目录路径
 
