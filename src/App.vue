@@ -30,6 +30,7 @@ const pagefileInitial = ref(8192)
 const pagefileMaximum = ref(16384)
 
 const cleanupTools = [
+  { id: 'ai-work-cache', label: 'AI 工作缓存', description: 'Claude、Cursor、Windsurf、Trae、Kiro、ChatGPT 等缓存与日志', confirm: '建议先退出 AI 应用。这里只清理可重建缓存和日志，不会删除对话、配置、模型或项目文件。确认继续？' },
   { id: 'browser-cache', label: '浏览器缓存', description: 'Chrome、Edge、Firefox 缓存与启动缓存', confirm: '将关闭浏览器后清理缓存文件，是否继续？' },
   { id: 'wechat-cache', label: '微信缓存', description: 'FileStorage 与消息附件/图片/视频缓存', confirm: '微信目录可能包含本地媒体文件。请先退出微信，确认继续清理？' },
   { id: 'vscode-cache', label: 'VSCode 缓存', description: 'Cache、GPUCache、日志和扩展安装缓存', confirm: '建议先退出 VSCode。确认清理 VSCode 缓存？' },
@@ -193,7 +194,7 @@ async function runTool(tool) {
     const result = await invoke('run_maintenance', { action: tool.id })
     lastAction.value = result
     if (result.success) {
-      if (['browser-cache', 'vscode-cache', 'nvidia-cache', 'developer-cache', 'pycache', 'windows-cleanup'].includes(tool.id)) await scan()
+      if (['ai-work-cache', 'browser-cache', 'vscode-cache', 'nvidia-cache', 'developer-cache', 'pycache', 'windows-cleanup'].includes(tool.id)) await scan()
     }
   } catch (err) {
     error.value = `${tool.label}失败：${String(err)}`

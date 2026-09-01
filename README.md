@@ -9,6 +9,7 @@
 - 预览待清理空间，再由用户确认执行
 - 支持 Chrome、Edge、Firefox、微信、VSCode、NVIDIA/AMD 和开发工具缓存
 - 支持 pip、npm、conda、Python `__pycache__` 与 Docker 未使用资源清理
+- 支持 Claude、Cursor、Windsurf、Trae、Kiro、ChatGPT、LM Studio 等 AI 客户端的可重建缓存和日志清理
 - 支持关闭休眠、服务优化、网络/VPN/TUN 修复、页面文件设置
 - 支持 C 盘大目录分析、DISM 组件清理和卷影副本空间限制
 - 可选删除 Hermes 整个本地数据目录（需要单独勾选）
@@ -83,4 +84,4 @@ clean_safe_plus/
 
 ## 安全边界
 
-客户端不接受前端传入的任意路径，只能清理 Rust 后端内置白名单中的目录。Fincept 虚拟环境、Visual Studio 安装缓存、Codex 运行组件等应用数据不会被默认清理，避免误伤开发环境或已安装程序。
+客户端不接受前端传入的任意路径，只能清理 Rust 后端内置白名单中的目录。AI 清理只包含可重建的缓存、扩展下载缓存和日志，不删除对话记录、配置、模型文件或项目文件。Fincept 虚拟环境、Visual Studio 安装缓存、Codex 运行组件等应用数据也不会被默认清理，避免误伤开发环境或已安装程序。

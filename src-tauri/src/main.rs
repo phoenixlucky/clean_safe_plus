@@ -145,6 +145,29 @@ fn add_browser_cache_specs(
     }
 }
 
+fn add_ai_app_cache_specs(specs: &mut Vec<TargetSpec>, app_id: &str, app_label: &str, root: PathBuf) {
+    for (index, relative) in [
+        "Cache",
+        "Code Cache",
+        "GPUCache",
+        "DawnCache",
+        "CachedData",
+        "CachedExtensionVSIXs",
+        "Service Worker/CacheStorage",
+        "logs",
+    ]
+    .iter()
+    .enumerate()
+    {
+        add_unique_contents(
+            specs,
+            &format!("ai-{app_id}-{index}"),
+            &format!("{app_label} {relative}"),
+            root.join(relative),
+        );
+    }
+}
+
 fn target_specs() -> Vec<TargetSpec> {
     let mut specs = Vec::new();
     let local = env_path("LOCALAPPDATA");
@@ -173,6 +196,32 @@ fn target_specs() -> Vec<TargetSpec> {
         add_contents(&mut specs, "huorong-appstore-cache", "火绒应用商店缓存", local.join("Huorong/AppStore/storecache/Cache"));
         add_contents(&mut specs, "mcp-chrome-logs", "Chrome MCP 日志", local.join("mcp-chrome-bridge/logs"));
         add_contents(&mut specs, "node-gyp-cache", "node-gyp 缓存", local.join("node-gyp/Cache"));
+        for (app_id, app_label, root) in [
+            ("claude-local", "Claude", local.join("Claude")),
+            ("cursor-local", "Cursor", local.join("Cursor")),
+            ("windsurf-local", "Windsurf", local.join("Windsurf")),
+            ("trae-local", "Trae", local.join("Trae")),
+            ("kiro-local", "Kiro", local.join("Kiro")),
+            ("chatgpt-local", "ChatGPT", local.join("ChatGPT")),
+            ("chatgpt-openai-local", "ChatGPT", local.join("OpenAI/ChatGPT")),
+            ("lm-studio-local", "LM Studio", local.join("LM Studio")),
+        ] {
+            add_ai_app_cache_specs(&mut specs, app_id, app_label, root);
+        }
+        if let Ok(entries) = fs::read_dir(local.join("Packages")) {
+            for (index, entry) in entries.flatten().enumerate() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                if path.is_dir() && name.contains("openai.chatgpt") {
+                    add_contents(
+                        &mut specs,
+                        &format!("ai-chatgpt-package-{index}"),
+                        "ChatGPT 应用本地缓存",
+                        path.join("LocalCache"),
+                    );
+                }
+            }
+        }
         add_browser_cache_specs(&mut specs, "chrome", "Chrome", local.join("Google/Chrome/User Data"), &["Cache", "Code Cache", "GPUCache", "ShaderCache", "GrShaderCache", "Service Worker/CacheStorage"]);
         add_browser_cache_specs(&mut specs, "edge", "Edge", local.join("Microsoft/Edge/User Data"), &["Cache", "Code Cache", "GPUCache", "ShaderCache", "GrShaderCache", "Service Worker/CacheStorage"]);
         add_directory(&mut specs, "hermes", "Hermes 本地数据（整目录）", local.join("hermes"));
@@ -180,6 +229,18 @@ fn target_specs() -> Vec<TargetSpec> {
     if let Some(app) = &app {
         add_contents(&mut specs, "npm-roaming-cache", "npm 漫游缓存", app.join("npm-cache"));
         add_contents(&mut specs, "deepseek-cache", "DeepSeek 桌面缓存", app.join("@deepseek-ai/dsh-desktop/Cache"));
+        for (app_id, app_label, root) in [
+            ("claude-roaming", "Claude", app.join("Claude")),
+            ("cursor-roaming", "Cursor", app.join("Cursor")),
+            ("windsurf-roaming", "Windsurf", app.join("Windsurf")),
+            ("trae-roaming", "Trae", app.join("Trae")),
+            ("kiro-roaming", "Kiro", app.join("Kiro")),
+            ("chatgpt-roaming", "ChatGPT", app.join("ChatGPT")),
+            ("chatgpt-openai-roaming", "ChatGPT", app.join("OpenAI/ChatGPT")),
+            ("lm-studio-roaming", "LM Studio", app.join("LM Studio")),
+        ] {
+            add_ai_app_cache_specs(&mut specs, app_id, app_label, root);
+        }
         add_contents(&mut specs, "vscode-cache", "VSCode 缓存", app.join("Code/Cache"));
         add_contents(&mut specs, "vscode-cached-data", "VSCode 已缓存数据", app.join("Code/CachedData"));
         add_contents(&mut specs, "vscode-code-cache", "VSCode 代码缓存", app.join("Code/Code Cache"));
@@ -528,6 +589,23 @@ fn pycache_action() -> ActionResponse {
     ActionResponse { success: true, message: "__pycache__ 清理完成".to_string(), details: vec![format!("释放约 {}", format_bytes(freed))], warnings: if skipped > 0 { vec![format!("有 {skipped} 个目录被占用或受保护，已跳过")] } else { Vec::new() } }
 }
 
+fn ai_work_cache_action() -> ActionResponse {
+    clear_matching_targets(
+        |spec| {
+            spec.id.starts_with("ai-")
+                || matches!(
+                    spec.id.as_str(),
+                    "deepseek-cache"
+                        | "mcp-chrome-logs"
+                        | "evaluationspiders-cache"
+                        | "evaluationspiders-code-cache"
+                )
+                || spec.id.starts_with("reasonix-playwright-")
+        },
+        "AI 工作缓存",
+    )
+}
+
 fn service_and_registry_optimization() -> ActionResponse {
     let script = r#"
 $ErrorActionPreference = 'Continue'
@@ -603,6 +681,7 @@ fn run_maintenance(action: String) -> Result<ActionResponse, String> {
             close_processes(&["chrome.exe", "msedge.exe", "firefox.exe"]);
             clear_matching_targets(|spec| spec.id.starts_with("chrome-") || spec.id.starts_with("edge-") || spec.id.starts_with("firefox-"), "浏览器缓存")
         }
+        "ai-work-cache" => ai_work_cache_action(),
         "wechat-cache" => {
             close_processes(&["WeChat.exe", "Weixin.exe"]);
             let mut details = Vec::new();

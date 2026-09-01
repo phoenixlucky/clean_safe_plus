@@ -45,6 +45,26 @@ function Add-DirectoryTarget {
     }
 }
 
+function Add-AIAppCacheTargets {
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [Parameter(Mandatory)] [string]$Label
+    )
+
+    foreach ($relative in @(
+        'Cache',
+        'Code Cache',
+        'GPUCache',
+        'DawnCache',
+        'CachedData',
+        'CachedExtensionVSIXs',
+        'Service Worker\CacheStorage',
+        'logs'
+    )) {
+        Add-ContentsTarget -Path (Join-Path $Path $relative) -Label "$Label $relative"
+    }
+}
+
 function Get-DirectoryBytes {
     param([Parameter(Mandatory)] [string]$Path)
 
@@ -75,6 +95,34 @@ Add-ContentsTarget -Path (Join-Path $env:LOCALAPPDATA 'Huorong\AppStore\storecac
 Add-ContentsTarget -Path (Join-Path $env:LOCALAPPDATA 'mcp-chrome-bridge\logs') -Label 'Chrome MCP logs'
 Add-ContentsTarget -Path (Join-Path $env:LOCALAPPDATA 'node-gyp\Cache') -Label 'node-gyp cache'
 Add-ContentsTarget -Path (Join-Path $env:APPDATA '@deepseek-ai\dsh-desktop\Cache') -Label 'DeepSeek desktop cache'
+
+foreach ($app in @(
+    @{ Path = (Join-Path $env:LOCALAPPDATA 'Claude'); Label = 'Claude' },
+    @{ Path = (Join-Path $env:LOCALAPPDATA 'Cursor'); Label = 'Cursor' },
+    @{ Path = (Join-Path $env:LOCALAPPDATA 'Windsurf'); Label = 'Windsurf' },
+    @{ Path = (Join-Path $env:LOCALAPPDATA 'Trae'); Label = 'Trae' },
+    @{ Path = (Join-Path $env:LOCALAPPDATA 'Kiro'); Label = 'Kiro' },
+    @{ Path = (Join-Path $env:LOCALAPPDATA 'ChatGPT'); Label = 'ChatGPT' },
+    @{ Path = (Join-Path $env:LOCALAPPDATA 'OpenAI\ChatGPT'); Label = 'ChatGPT' },
+    @{ Path = (Join-Path $env:LOCALAPPDATA 'LM Studio'); Label = 'LM Studio' },
+    @{ Path = (Join-Path $env:APPDATA 'Claude'); Label = 'Claude' },
+    @{ Path = (Join-Path $env:APPDATA 'Cursor'); Label = 'Cursor' },
+    @{ Path = (Join-Path $env:APPDATA 'Windsurf'); Label = 'Windsurf' },
+    @{ Path = (Join-Path $env:APPDATA 'Trae'); Label = 'Trae' },
+    @{ Path = (Join-Path $env:APPDATA 'Kiro'); Label = 'Kiro' },
+    @{ Path = (Join-Path $env:APPDATA 'ChatGPT'); Label = 'ChatGPT' },
+    @{ Path = (Join-Path $env:APPDATA 'OpenAI\ChatGPT'); Label = 'ChatGPT' },
+    @{ Path = (Join-Path $env:APPDATA 'LM Studio'); Label = 'LM Studio' }
+)) {
+    Add-AIAppCacheTargets -Path $app.Path -Label $app.Label
+}
+
+$chatgptPackages = Join-Path $env:LOCALAPPDATA 'Packages'
+if (Test-Path -LiteralPath $chatgptPackages -PathType Container) {
+    foreach ($package in @(Get-ChildItem -LiteralPath $chatgptPackages -Force -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'OpenAI.ChatGPT*' })) {
+        Add-ContentsTarget -Path (Join-Path $package.FullName 'LocalCache') -Label 'ChatGPT app local cache'
+    }
+}
 
 # The state directory name may change; only target playwright-mcp\cache below it.
 $reasonixStateRoot = Join-Path $env:APPDATA 'reasonix\mcp-state'

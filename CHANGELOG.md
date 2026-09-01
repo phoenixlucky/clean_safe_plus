@@ -10,6 +10,7 @@
 ### 新增
 - 命令行版新增「设置虚拟内存（页面文件）」子项：支持系统自动管理 / 自定义大小（可选盘符）/ 无分页文件，修改后需重启生效
 - 重构为两级菜单：先选择「清理类 / 设置类 / 分析类」，再选择具体子项，执行后返回菜单可继续操作
+- 新增「AI 工作缓存」清理：覆盖 Claude、Cursor、Windsurf、Trae、Kiro、ChatGPT、LM Studio 等客户端的可重建缓存、扩展下载缓存和日志；不处理对话、配置、模型或项目文件
 
 ### 修复
 - 虚拟内存自定义大小：创建分页文件时 `InitialSize`/`MaximumSize` 必须以 `uint32` 类型写入（`Win32_PageFileSetting` 的 CIM 类型为 UInt32），否则 `New-CimInstance` 报「属性"InitialSize"的类型不匹配」且仍误报成功；设置失败时改为提示失败而非「已设置」
