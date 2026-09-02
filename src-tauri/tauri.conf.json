@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Clean Safe Plus",
+  "productName": "WJ C盘清理大师",
   "version": "2.0.0",
   "identifier": "com.cleansafeplus.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Clean Safe Plus",
+        "title": "WJ C盘清理大师",
         "width": 1180,
         "height": 780,
         "minWidth": 760,

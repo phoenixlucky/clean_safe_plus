@@ -17,7 +17,8 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .topbar { position: relative; z-index: 2; min-height: 64px; flex: 0 0 64px; display: grid; grid-template-columns: 250px minmax(220px, 1fr) 250px; align-items: center; gap: 20px; padding: 0 26px; background: rgba(250, 253, 255, .84); border-bottom: 1px solid rgba(215, 229, 238, .86); }
 .brand-lockup, .topbar-meta, .search-box, .card-heading, .hero-buttons, .analysis-toolbar, .workspace-heading { display: flex; align-items: center; }
 .brand-lockup { min-width: 0; gap: 11px; }
-.brand-mark { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; background: #3e4655; border-radius: 10px; font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+.brand-lockup > div { min-width: 0; }
+.brand-mark { width: 38px; height: 38px; flex: 0 0 auto; display: block; object-fit: contain; }
 .brand-name { overflow: hidden; color: #303746; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 800; }
 .brand-caption { margin-top: 2px; color: #9aa8b2; font-size: 10px; }
 .search-box { justify-self: center; width: min(380px, 100%); height: 36px; gap: 9px; padding: 0 14px; color: #92a0ab; border: 1px solid #dce6ed; border-radius: 20px; background: rgba(255,255,255,.9); font-size: 11px; }

@@ -2,12 +2,12 @@
 setlocal EnableExtensions
 
 chcp 65001 >nul
-title Clean Safe Plus - Portable EXE Build
+title WJ C盘清理大师 - Portable EXE Build
 cd /d "%~dp0"
 set "RELEASE_DIR=%~dp0releases"
 
 echo ================================================
-echo        Clean Safe Plus - Portable EXE
+echo        WJ C盘清理大师 - Portable EXE
 echo ================================================
 echo.
 

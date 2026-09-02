@@ -370,8 +370,8 @@ onMounted(scan)
   <div class="app-shell">
     <header class="topbar">
       <div class="brand-lockup">
-        <div class="brand-mark">CS</div>
-        <div><div class="brand-name">Clean Safe Plus</div><div class="brand-caption">Windows 空间管理</div></div>
+        <img class="brand-mark" src="/icons/logo.webp" alt="WJ C盘清理大师" />
+        <div><div class="brand-name">WJ C盘清理大师</div><div class="brand-caption">Windows 空间管理</div></div>
       </div>
       <div class="search-box"><img class="search-mark" src="/icons/search.webp" alt="" /><span>搜索管家功能，例如：快速清理、磁盘分析</span></div>
       <div class="topbar-meta"><span class="status-dot"></span><span>本机 · C 盘</span><button class="icon-button" title="重新扫描" :disabled="busy" @click="scan"><img src="/icons/refresh.webp" alt="" /></button></div>
@@ -451,6 +451,6 @@ onMounted(scan)
         </template>
       </main>
     </div>
-    <footer class="footer">Clean Safe Plus <span>·</span> Tauri 2.11+ / Vue 3.5</footer>
+    <footer class="footer">WJ C盘清理大师 <span>·</span> Tauri 2.11+ / Vue 3.5</footer>
   </div>
 </template>

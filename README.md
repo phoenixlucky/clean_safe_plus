@@ -1,4 +1,4 @@
-# Clean Safe Plus
+# WJ C盘清理大师
 
 一个面向 Windows 的 C 盘安全清理桌面客户端，使用 Tauri 2.11+、Vue 3.5.x 和 Rust 构建。
 

@@ -922,5 +922,5 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![scan_cleanup, clean_targets, run_maintenance, set_pagefile, analyze_disk, open_path])
         .run(tauri::generate_context!())
-        .expect("error while running Clean Safe Plus");
+        .expect("error while running WJ C盘清理大师");
 }
