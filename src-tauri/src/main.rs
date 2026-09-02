@@ -321,15 +321,51 @@ fn directory_size(path: &Path) -> u64 {
     let Ok(entries) = fs::read_dir(path) else { return 0 };
     let mut total = 0u64;
     for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if is_reparse_point(&entry_path) { continue; }
         let Ok(file_type) = entry.file_type() else { continue };
-        if file_type.is_symlink() { continue; }
         if file_type.is_file() {
-            if let Ok(metadata) = entry.metadata() { total = total.saturating_add(metadata.len()); }
+            total = total.saturating_add(file_storage_size(&entry_path));
         } else if file_type.is_dir() {
-            total = total.saturating_add(directory_size(&entry.path()));
+            total = total.saturating_add(directory_size(&entry_path));
         }
     }
     total
+}
+
+fn is_reparse_point(path: &Path) -> bool {
+    let Ok(metadata) = fs::symlink_metadata(path) else { return true; };
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        return metadata.file_attributes() & 0x400 != 0;
+    }
+    #[cfg(not(windows))]
+    metadata.file_type().is_symlink()
+}
+
+#[cfg(windows)]
+fn file_storage_size(path: &Path) -> u64 {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCompressedFileSizeW(path: *const u16, high: *mut u32) -> u32;
+        fn GetLastError() -> u32;
+    }
+
+    let wide = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+    let mut high = 0u32;
+    let low = unsafe { GetCompressedFileSizeW(wide.as_ptr(), &mut high) };
+    if low == u32::MAX && unsafe { GetLastError() } != 0 {
+        return fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0);
+    }
+    (u64::from(high) << 32) | u64::from(low)
+}
+
+#[cfg(not(windows))]
+fn file_storage_size(path: &Path) -> u64 {
+    fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0)
 }
 
 fn directory_size_cached(path: &Path, cache: &mut HashMap<PathBuf, u64>) -> u64 {
@@ -341,12 +377,13 @@ fn directory_size_cached(path: &Path, cache: &mut HashMap<PathBuf, u64>) -> u64 
     };
     let mut total = 0u64;
     for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if is_reparse_point(&entry_path) { continue; }
         let Ok(file_type) = entry.file_type() else { continue; };
-        if file_type.is_symlink() { continue; }
         if file_type.is_file() {
-            if let Ok(metadata) = entry.metadata() { total = total.saturating_add(metadata.len()); }
+            total = total.saturating_add(file_storage_size(&entry_path));
         } else if file_type.is_dir() {
-            total = total.saturating_add(directory_size_cached(&entry.path(), cache));
+            total = total.saturating_add(directory_size_cached(&entry_path, cache));
         }
     }
     cache.insert(key, total);
@@ -357,8 +394,8 @@ fn matching_files(path: &Path, prefix: &str, output: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(path) else { return };
     for entry in entries.flatten() {
         let entry_path = entry.path();
+        if is_reparse_point(&entry_path) { continue; }
         let Ok(file_type) = entry.file_type() else { continue };
-        if file_type.is_symlink() { continue; }
         if file_type.is_file() && entry.file_name().to_string_lossy().starts_with(prefix) {
             output.push(entry_path);
         } else if file_type.is_dir() {
@@ -371,8 +408,8 @@ fn matching_directories(path: &Path, name: &str, output: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(path) else { return };
     for entry in entries.flatten() {
         let entry_path = entry.path();
+        if is_reparse_point(&entry_path) { continue; }
         let Ok(file_type) = entry.file_type() else { continue };
-        if file_type.is_symlink() { continue; }
         if file_type.is_dir() {
             if entry.file_name().to_string_lossy().eq_ignore_ascii_case(name) {
                 output.push(entry_path.clone());
@@ -385,7 +422,11 @@ fn matching_directories(path: &Path, name: &str, output: &mut Vec<PathBuf>) {
 
 fn remove_entry(path: &Path) -> Result<(), std::io::Error> {
     let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() { fs::remove_dir_all(path) } else { fs::remove_file(path) }
+    if metadata.file_type().is_dir() {
+        if is_reparse_point(path) { fs::remove_dir(path) } else { fs::remove_dir_all(path) }
+    } else {
+        fs::remove_file(path)
+    }
 }
 
 fn spec_size(spec: &TargetSpec) -> u64 {
@@ -394,7 +435,7 @@ fn spec_size(spec: &TargetSpec) -> u64 {
         TargetMode::FilesByPrefix(prefix) => {
             let mut files = Vec::new();
             matching_files(&spec.path, prefix, &mut files);
-            files.iter().filter_map(|path| fs::metadata(path).ok()).map(|metadata| metadata.len()).sum()
+            files.iter().map(|path| file_storage_size(path)).sum()
         }
     }
 }
@@ -923,4 +964,24 @@ fn main() {
         .invoke_handler(tauri::generate_handler![scan_cleanup, clean_targets, run_maintenance, set_pagefile, analyze_disk, open_path])
         .run(tauri::generate_context!())
         .expect("error while running WJ C盘清理大师");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs::File, io::Write, time::{SystemTime, UNIX_EPOCH}};
+
+    #[test]
+    fn directory_size_matches_storage_size_for_a_regular_file() {
+        let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = env::temp_dir().join(format!("clean-safe-plus-test-{}-{suffix}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let file_path = root.join("artifact.bin");
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(&[0u8; 4096]).unwrap();
+        file.sync_all().unwrap();
+
+        assert_eq!(directory_size(&root), file_storage_size(&file_path));
+        fs::remove_dir_all(root).unwrap();
+    }
 }
